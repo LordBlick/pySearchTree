@@ -1,0 +1,384 @@
+#!/usr/bin/python2
+# -*- encoding: utf-8 -*-
+# -*- coding: utf-8 -*-
+
+'''
+ This program source code file is part of pySearchTree, a text files search application.
+ 
+ Copyright  © 2015 by LordBlick (at) gmail.com
+ 
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+ 
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ 
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, you may find one here:
+ http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+ or you may search the http://www.gnu.org website for the version 2 license,
+ or you may write to the Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+'''
+
+from os import path as ph, readlink as rlnk
+from clIniFile import IniSections, _p, xlist
+from uiMassFind import  gtk, wg
+
+dbg=False
+
+class filesFind:
+	def __init__(mn):
+		mn.uiInit()
+		mn.findInit()
+		mn.appStartWatchingObject()
+		gtk.gdk.threads_init()
+		gtk.threads_enter()
+		gtk.main()
+		gtk.threads_leave()
+
+	global uiFn, rFn
+	uiFn = lambda fileName: fileName.replace(ph.expanduser('~/'), '~/')
+	rFn = lambda fileName: fileName.replace('~/', ph.expanduser('~/'))
+
+	def uiInit(mn):
+		from uiMassFind import massFindUI
+		ui = mn.ui = massFindUI()
+		ui.mainWindow.connect("destroy", lambda xargs: mn.Exit())
+		ui.buttonClear.connect("clicked", mn.appClear)
+		ui.buttonFind.connect("clicked", mn.appFind)
+		ui.buttonBreak.connect("clicked", mn.appBreakFind)
+		ui.buttonExit.connect("clicked", lambda xargs: mn.Exit())
+		ui.cbFileset.connect("changed", mn.appChangeFileset)
+		ui.toggRoot.connect("toggled", mn.appChangeRoot)
+		mn.createTxtTags()
+
+	def createTxtTags(mn):
+		pango = wg.pango
+		logBuff = mn.ui.logView.get_buffer()
+		mn.tgFileName = logBuff.create_tag('filename', weight = pango.WEIGHT_BOLD)
+		mn.tgFindPhrase = logBuff.create_tag('phrase', weight = pango.WEIGHT_BOLD)
+		mn.tgFindErr = logBuff.create_tag('error', weight = pango.WEIGHT_BOLD)
+		mn.tgEnum = logBuff.create_tag('line_number', weight = pango.WEIGHT_BOLD)
+
+	def updateColors(mn):
+		for color_cfg in(color_set for color_set in mn.cfg['UI'].keys() if color_set[0:2] in('bg', 'fg')):
+			tag_name = color_cfg.replace('bg', 'tg').replace('fg', 'tg')
+			if not(hasattr(mn, tag_name)):
+				mn.cfg['UI'].remove(color_cfg)
+				_p("Unknown mn.tg%s\n" % (color_cfg[0:2]))
+				continue
+			try:
+				color = gtk.gdk.color_parse(mn.cfg['UI'][color_cfg])
+			except ValueError:
+				mn.cfg['UI'].remove(color_cfg)
+				_p("Unknown color name:'%s' for mn.tg%s\n" % (mn.cfg['UI'][color_cfg], color_cfg[0:2]))
+				continue
+			prop_name = {'bg': 'background-gdk', 'fg': 'foreground-gdk'}[color_cfg[0:2]]
+			if dbg:
+				_p("mn.tag_name.set_property(\"%s\", gtk.gdk.color_parse(mn.cfg['UI'][%s])\n" % (prop_name, color_cfg))
+			getattr(mn, tag_name).set_property(prop_name, color)
+
+	def defaultColors(mn):
+		for color_cfg, color_val in(
+			('fgFileName', 'yellow'),
+			('fgFindPhrase', 'orange'),
+			('bgFindPhrase', '#002818'),
+			('fgFindErr', 'red'),
+			('fgEnum', '#0F0'),):
+			if not(mn.cfg['UI'][color_cfg]):
+				mn.cfg['UI'][color_cfg] = color_val
+		mn.updateColors()
+
+	def appChangeFileset(mn, widget):
+		idx = widget.get_active()
+		if idx > -1:
+			mn.actionName, mn.reFileset, mn.findDirs = mn.ui.lsFileset[idx]
+
+	def appChangeRoot(mn, widget):
+		ui = mn.ui
+		if widget.get_active():
+			if mn.cfg['Main']['FindPath']:
+				text = "%s\t" % mn.cfg['Main']['FindPath']
+			else:
+				fileName = wg.dialogChooseFile(parent=ui.mainWindow,
+					startDir=ui.lsFileset[ui.cbFileset.get_active()][2][0],
+					title="Select search root", act='dir_open', bShowHidden=True)
+				if fileName:
+					mn.cfg['Main']['FindPath'] = fileName
+					text = "%s\t" % fileName
+				else:
+					widget.set_active(False)
+					return
+		else:
+			text = "Choose dir...\t"
+			mn.cfg['Main']['FindPath'] = None
+		label = widget.child
+		if ui.toggMaskHome.get_active():
+			text = uiFn(text)
+		label.set_text(text)
+		tooltip = text[:-1]
+		widget.set_tooltip_text(tooltip)
+
+	def bCfg(mn, cfgStr):
+		v = mn.cfg['Main'][cfgStr]
+		if type(v) is str and(v.isdigit()):
+			return int(v)
+		return 0
+
+	def findInit(mn):
+		ui = mn.ui
+		mn.appCfgLoad()
+		from glob import glob as ls
+		mn.bSearching = False
+		mn.lsThreads = []
+		for name, reFileset, findRootDirs in (
+			('All files', '', None),
+			('AVR asm', "^.+\.((asm)|(inc))$", ('~/Devel/AVR/asm',)),
+			('Web src', "^.+\.((htm)|(html)|(php\d?)|(py)|(css)|(js)|(txt))$", ('~/Devel/WwW',)),
+			('KiCAD', "^.+\.((pro)|(lib)|(mod)|(brd)|(sch)|(kicad_pcb)|(kicad_mod))$", ('~/Devel/KiCAD',)),
+			('KiCAD Lib Only', "^.+\.((lib)|(mod)|(kicad_mod))$", ('~/Devel/KiCAD',)),
+			#('Python', "mime:text/x-python", ('~/Devel/Python',)),
+			('Python', "^((.+\.py\d*)|([^.]+))$", ('~/Devel/Python',)),
+			('C/C++', "^.+\.((c((p{2})|(x{2}))?)|(h)|(i))$", None),
+			('rpm Spec', "^(.+\.spec(\.(old)|(or[iy]g))?)$", ('~/Devel/SPECE',)),
+			):
+			findDirs = []
+			if findRootDirs:
+				for findRootDir in findRootDirs:
+					walkDir = ph.realpath(ph.expanduser(findRootDir))
+					findDirs.append(walkDir)
+					for fileName in ls("%s/*" % walkDir):
+						if ph.islink(fileName):
+							link_target = ph.realpath(ph.expanduser(rlnk(fileName)))
+							if ph.isdir(link_target):
+								findDirs.append(link_target)
+			else:
+				findDirs = [ph.realpath(ph.expanduser('~/Devel'))]
+			ui.lsFileset.append( (name, reFileset, findDirs) )
+		txtFileSet = mn.cfg['Main']['fileSet']
+		if txtFileSet and(txtFileSet.isdigit()) and(int(txtFileSet)>-1):
+			ui.cbFileset.set_active(int(txtFileSet))
+		else:
+			ui.cbFileset.set_active(0)
+		ui.toggMaskHome.connect("toggled", mn.appMaskHome)
+		ui.toggMaskHome.set_active(int(mn.bCfg('bMaskHome')))
+		ui.toggSrchInfo.connect("toggled", lambda widget:
+				mn.cfg['Main'].__setitem__('bSrchInfo', str(int(widget.get_active()))))
+		ui.toggSrchInfo.set_active(int(mn.bCfg('bSrchInfo')))
+
+	def appMaskHome(mn, widget):
+		tr = mn.ui.toggRoot
+		bM = widget.get_active()
+		mn.cfg['Main']['bMaskHome'] = str(int(bM))
+		if tr.get_active():
+			label = tr.child
+			label.set_text((rFn, uiFn)[bM](label.get_text()))
+
+		
+
+	def appClear(mn, widget):
+		mn.ui.logView.clear_text()
+
+	def appBreakFind(mn, widget):
+		mn.bBreak = True
+
+	def appFind(mn, widget):
+		if mn.bSearching:
+			return
+		mn.bSearching = True
+		mn.bBreak = False
+		import thread
+		thread.start_new_thread(mn.thrFind, ())
+
+	def thrPrint(mn, text, tag=None):
+		gtk.threads_enter()
+		try:
+			if tag:
+				mn.ui.logView.insert_end(text, tag=tag)
+			else:
+				mn.ui.logView.insert_end(text)
+		finally: gtk.threads_leave()
+
+	def thrFind(mn):
+		bFound = False
+		from os import walk
+		import re
+		from magic import open as fmo, MIME
+		mime=fmo(MIME)
+		mime.load()
+		regex = mime_ex = phrase = ''
+		gtk.threads_enter()
+		try: phrase = mn.ui.txtFindPhrase.get_text()
+		finally: gtk.threads_leave()
+		if mn.bCfg('bSrchInfo'):
+			mn.thrPrint("Searching for regex:'%s'...\n" % phrase)
+		if not phrase:
+			mn.thrPrint("Empty regex input...\n", tag=mn.tgFindErr)
+			mn.bSearching = False
+			return
+		try:
+			rexFindIt = re.compile(phrase, re.U)
+		except:
+			mn.thrPrint("This isn't correct regular expression:'%s'\n" % phrase, tag=mn.tgFindErr)
+			mn.bSearching = False
+			return
+		gtk.threads_enter()
+		try: mn.ui.buttonFind.set_sensitive(False)
+		finally: gtk.threads_leave()
+		if mn.reFileset:
+			if mn.reFileset.startswith('mime:'):
+				mime_ex = mn.reFileset[5:]
+			else:
+				regex = re.compile(mn.reFileset, re.I | re.U)
+		else:
+			regex = re.compile('.*', re.I | re.U)
+		if mn.cfg['Main']['FindPath']:
+			findDirs = (mn.cfg['Main']['FindPath'], )
+		else:
+			findDirs = mn.findDirs
+		if mn.actionName=='AVR asm':
+			codepage = 'cp1250'
+		else:
+			codepage = 'utf-8'
+		for findDir in findDirs:
+			for findRoot, fDir, findFiles in walk(findDir):
+				if mn.bBreak:
+					break
+				if not findFiles:
+					continue
+				for fileName in findFiles:
+					if mn.bBreak:
+						break
+					fullFileName = '/'.join((findRoot, fileName))
+					if not(regex and(regex.match(fileName)) or(mime_ex and(mime.file(fullFileName).startswith(mime_ex)))):
+						continue
+					while ph.islink(fullFileName):
+						link_target = ph.realpath(ph.expanduser("%s/%s" % (findRoot, rlnk(fullFileName))))
+						fullFileName = link_target
+					if not(ph.isfile(fullFileName)):
+						continue
+					hFile = open(fullFileName, 'r')
+					if not(hFile):
+						continue
+					fileData = hFile.read()
+					hFile.close()
+					bFnd = False
+					for idx, line in enumerate(fileData.splitlines()):
+						slices = []
+						tmpline = line
+						lmatch = rexFindIt.search(tmpline)
+						if not(lmatch):
+							continue
+						if not(bFnd):
+							if mn.bCfg('bMaskHome'):
+								fullFileName = fullFileName.replace(ph.expanduser('~'), '~')
+							for txtslice, cTag in(
+								("In:'", 0), (fullFileName, 1), ("':\n", 0) ):
+								mn.thrPrint(txtslice, tag=(None, mn.tgFileName)[cTag])
+							bFnd = True
+							if not(bFound):
+								bFound = True
+						slices.append(("%3d:" % (idx+1), 1))	#	tag=mn.tgEnum
+						while tmpline:
+							srchB, srchE = lmatch.span()
+							slices.append((tmpline[:srchB], 0))
+							slices.append((tmpline[srchB:srchE], 2))	#	tag=mn.tgFindPhrase
+							tmpline = tmpline[srchE:]
+							lmatch = rexFindIt.search(tmpline)
+							if not(lmatch):
+								slices.append((tmpline, 0))
+								break
+						for txtslice, cTag in slices:
+							if txtslice:
+								mn.thrPrint(txtslice.decode(codepage, 'ignore'), tag=(None, mn.tgEnum, mn.tgFindPhrase)[cTag])
+						mn.thrPrint('\n')
+		gtk.threads_enter()
+		try: mn.ui.buttonFind.set_sensitive(True)
+		finally: gtk.threads_leave()
+		if mn.bBreak:
+			mn.thrPrint("Searching aborted...\n", tag=mn.tgFindErr)
+		if not(bFound):
+			mn.thrPrint("Searched phrase not found...\n", tag=mn.tgFindErr)
+		mn.bSearching = False
+
+	def callWriteCmdBuff(mn, fd, condition):
+		logBuff=mn.ui.textCmdline.get_buffer()
+		for line in fd.readline():
+			text = line.rstrip()
+			mn.ui.logView.insert_end(text)
+
+	def Exit(mn):
+		print("Exiting...\n")
+		mn.appStopWatchingObject()
+		mn.appCfgStore()
+		mn.ui.uiExit()
+
+	def appStartWatchingObject(mn):
+		from os import fdopen as fdo, O_NDELAY as NO_DELAY
+		from gobject import io_add_watch as addWatch
+		from gobject import IO_IN as ioIN, IO_HUP as ioHUP
+		import pty, fcntl
+		mn.ptyProc = None
+		mn.pty_parent_fd, mn.pty_child_fd = pty.openpty()
+		mn.fd = fdo(mn.pty_parent_fd, 'r')
+		file_flags = fcntl.fcntl(mn.fd, fcntl.F_GETFL)
+		fcntl.fcntl(mn.fd, fcntl.F_SETFL, file_flags|NO_DELAY)
+		mn.watchID = addWatch(mn.fd,  ioIN | ioHUP,  mn.callWriteCmdBuff)
+
+	def appStopWatchingObject(mn):
+		import subprocess
+		import time
+		if type(mn.ptyProc) is subprocess.Popen:
+			mn.ptyProc.kill()
+			while mn.ptyProc.poll() == None:
+				time.sleep(0.1)
+			mn.ptyProc = None
+		from gobject import source_remove as unWatch
+		unWatch(mn.watchID)
+		mn.fd.close()
+
+	def appCfgLoad(mn):
+		ui = mn.ui
+		mn.cfg = IniSections()
+		rfn = ph.expanduser(__file__)
+		cfgBase = ph.dirname(ph.abspath(rfn))+'/'+ ph.basename(rfn)
+		mn.old_cfg_fn = cfgBase+'.conf'
+		cfg_fn = cfgBase+'.ini'
+		_p("Config base: '%s'\n" % cfgBase)
+		if ph.isfile(cfg_fn):
+			mn.cfg.load(cfg_fn)
+			_p("Loaded Config file: '%s'\n" % (cfg_fn))
+		if not(len(mn.cfg)) and(ph.isfile(mn.old_cfg_fn)):
+			mn.cfg.load_old_cfg(mn.old_cfg_fn)
+			_p("Config file: '%s'\n" % (mn.old_cfg_fn))
+			_p("→New Config file: '%s'\n" % (cfg_fn))
+		mn.cfg.filename = cfg_fn
+		ui.toggRoot.set_active(bool(mn.cfg['Main']['FindPath']))
+		if mn.cfg['Main']['phraseFind']:
+			ui.txtFindPhrase.set_text(mn.cfg['Main']['phraseFind'])
+		mn.lastcfg = mn.cfg['Main'].copy(), mn.cfg['UI'].copy()
+		from dlgEngine import DialogEngine
+		ui.cfg = mn.cfg['UI']
+		mn.defaultColors()
+		ui.dlgEngine = DialogEngine(ui)
+		ui.restoreGeometry()
+
+	def appCfgStore(mn):
+		ui = mn.ui
+		ui.storeGeometry()
+		mn.cfg['Main']['phraseFind'] = ui.txtFindPhrase.get_text()
+		mn.cfg['Main']['fileSet'] = str(int(ui.cbFileset.get_active()))
+		if not(mn.cfg['Main']['FindPath']):
+			mn.cfg['Main'].remove('FindPath')
+		if mn.lastcfg!=(mn.cfg['Main'], mn.cfg['UI']):
+			mn.cfg.section_place('Main', 0)
+			mn.cfg.store()
+
+# Entry point
+if __name__ == "__main__":
+	filesFind()

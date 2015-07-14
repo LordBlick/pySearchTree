@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Mass Find
+Comment=
+Exec=massFind
+# Just install somewhere in system/user icon space typical search icon
+Icon=pic/logview.png
+Path=
+Terminal=false
+StartupNotify=false
