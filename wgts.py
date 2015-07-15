@@ -60,7 +60,10 @@ def Label(txtLabel, hFixed, posX, posY, width, height=None, fontDesc=None, xalig
 		hFixed.put(hLabel, posX, posY)
 	return hLabel
 
-def npButt(txtLabel, fileImage=None, stockID=None, fontDesc=None):
+def Butt(txtLabel, hFixed, posX, posY, width, height=None, fileImage=None, stockID=None, fontDesc=None):
+	"""If stockID is set, txtLabel set as True means full stock button,
+	non-null string - own Label for stock image,
+	in other case - button with only stock image"""
 	if stockID == None and fileImage == None:
 		hButt = gtk.Button(label=txtLabel, use_underline=False)
 		if fontDesc:
@@ -90,13 +93,6 @@ def npButt(txtLabel, fileImage=None, stockID=None, fontDesc=None):
 				image.set_from_file(fileImage)
 			hButt = gtk.Button()
 			hButt.add(image)
-	return hButt
-
-def Butt(txtLabel, hFixed, posX, posY, width, height=None, fileImage=None, stockID=None, fontDesc=None):
-	"""If stockID is set, txtLabel set as True means full stock button,
-	non-null string - own Label for stock image,
-	in other case - button with only stock image"""
-	hButt = npButt(txtLabel, fileImage=fileImage, stockID=stockID, fontDesc=fontDesc)
 	if not height:
 		height = Height
 	hButt.set_size_request(width, height)
@@ -112,11 +108,10 @@ def Check(txtLabel, hFixed, posX, posY, width, height=None, fontDesc=None):
 	hFixed.put(hCheck, posX, posY)
 	return hCheck
 
-def entryIcoClr(ed, icoPos, sigEvent):
-	if icoPos == gtk.ENTRY_ICON_SECONDARY:
-		ed.set_text('')
-
-def npEntry(startIco=None, clearIco=False, bEditable=True, fontDesc=None):
+def Entry(hFixed, posX, posY, width, height=None, startIco=None, clearIco=False, bEditable=True, fontDesc=None):
+	def entryIcoClr(ed, icoPos, sigEvent):
+		if icoPos == gtk.ENTRY_ICON_SECONDARY:
+			ed.set_text('')
 	hEntry = gtk.Entry()
 	if fontDesc:
 		hEntry.modify_font(fontDesc)
@@ -127,10 +122,6 @@ def npEntry(startIco=None, clearIco=False, bEditable=True, fontDesc=None):
 		hEntry.set_icon_tooltip_text (1, 'Clear')
 		hEntry.connect("icon-release", entryIcoClr)
 	hEntry.set_property("editable", bool(bEditable))
-	return hEntry
-
-def Entry(hFixed, posX, posY, width, height=None, startIco=None, clearIco=False, bEditable=True, fontDesc=None):
-	hEntry = npEntry(clearIco=clearIco, bEditable=bEditable, fontDesc=fontDesc)
 	if not height:
 		height = Height
 	hEntry.set_size_request(width, height)
@@ -138,8 +129,6 @@ def Entry(hFixed, posX, posY, width, height=None, startIco=None, clearIco=False,
 	return hEntry
 
 def ComboBox(modelCb, hFixed, posX, posY, width, height=None, fontDesc=None, wrap=None, selTxt=0):
-	if not height:
-		height=Height
 	hCb = gtk.ComboBox()
 	cellRendr = gtk.CellRendererText()
 	if fontDesc:
@@ -151,7 +140,9 @@ def ComboBox(modelCb, hFixed, posX, posY, width, height=None, fontDesc=None, wra
 	else:
 		cellRendr.set_property('ellipsize', pango.ELLIPSIZE_END)
 	hCb.set_model(modelCb)
-	hCb.set_size_request(width, height+4)
+	if not height:
+		height=Height+4
+	hCb.set_size_request(width, height)
 	hFixed.put(hCb, posX, posY-2)
 	return hCb
 
