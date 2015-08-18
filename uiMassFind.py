@@ -48,8 +48,14 @@ class massFindUI:
 	uiExit = lambda ui: gtk.main_quit()
 
 	def uiInit(ui):
-		from os import chdir as cd, path as ph
-		cd(ph.dirname(ph.abspath(__file__)))
+		from os import path as ph
+		rp = ui.runpath = ph.dirname(ph.realpath(__file__))
+		import dlgEngine
+		ui.dlgEngine = dlgEngine.DialogEngine(ui)
+		dlgEngine.debug = __name__ == "__main__"
+		global _dbg
+		_dbg = dlgEngine
+		_dbg("runpath: %s\n" % rp)
 		if __name__ == "__main__":
 			ui.cfg = {}
 		from gobject import TYPE_STRING as goStr, TYPE_INT as goInt, TYPE_PYOBJECT as goPyObj
@@ -64,7 +70,7 @@ class massFindUI:
 		ui.accGroup = gtk.AccelGroup()
 		ui.mainWindow.add_accel_group(ui.accGroup)
 		ui.mainWindow.modify_bg(gtk.STATE_NORMAL, wg.BGcolor)
-		ui.cfBPixbuf = gtk.gdk.pixbuf_new_from_file("pic/logview.png")
+		ui.cfBPixbuf = gtk.gdk.pixbuf_new_from_file(rp+"pic/logview.png")
 		gtk.window_set_default_icon_list(ui.cfBPixbuf, )
 		
 		ui.mainFrame = gtk.Fixed()
@@ -120,23 +126,24 @@ class massFindUI:
 			if ui.lastWinSize==(w, h):
 				return True
 			ui.lastWinSize = w, h
-		h1, h2 = h-70, h-40
-		ui.logView.set_size_request(w-20, h-80)
-		ui.mainFrame.move(ui.labFileset, 5, h1)
-		ui.mainFrame.move(ui.cbFileset, 40, h1-2)
-		ui.mainFrame.move(ui.toggRoot, 175, h1)
-		ui.toggRoot.set_size_request(w-280, wg.Height)
-		ui.mainFrame.move(ui.toggMaskHome, w-100, h1)
-		ui.mainFrame.move(ui.toggSrchInfo,  w-70, h1)
-		ui.mainFrame.move(ui.buttonSearchLog, w-40, h-71)
-		ui.mainFrame.move(ui.labFindPhrase, 5, h2)
-		ui.mainFrame.move(ui.txtFindPhrase, 45, h-41)
-		ui.txtFindPhrase.set_size_request(w-320, 25)
-		ui.mainFrame.move(ui.buttonFind, w-265, h2)
-		ui.mainFrame.move(ui.buttonBreak, w-210, h2)
-		ui.mainFrame.move(ui.buttonClear, w-155, h2)
-		ui.mainFrame.move(ui.buttonExit, w-95, h2)
-		return True
+			y = h-70
+			ui.logView.set_size_request(w-20, h-80)
+			ui.mainFrame.move(ui.labFileset, 5, y)
+			ui.mainFrame.move(ui.cbFileset, 40, y-2)
+			ui.mainFrame.move(ui.toggRoot, 175, y)
+			ui.toggRoot.set_size_request(w-280, wg.Height)
+			ui.mainFrame.move(ui.toggMaskHome, w-100, y)
+			ui.mainFrame.move(ui.toggSrchInfo,  w-70, y)
+			ui.mainFrame.move(ui.buttonSearchLog, w-40, y-1)
+			y += 30
+			ui.mainFrame.move(ui.labFindPhrase, 5, y)
+			ui.mainFrame.move(ui.txtFindPhrase, 45, y-1)
+			ui.txtFindPhrase.set_size_request(w-320, 25)
+			ui.mainFrame.move(ui.buttonFind, w-265, y)
+			ui.mainFrame.move(ui.buttonBreak, w-210, y)
+			ui.mainFrame.move(ui.buttonClear, w-155, y)
+			ui.mainFrame.move(ui.buttonExit, w-95, y)
+			return True
 
 	def restoreGeometry(ui):
 		if hasattr(ui, 'stv') and(ui.cfg['dlgSrchPos']):

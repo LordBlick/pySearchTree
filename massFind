@@ -26,7 +26,7 @@
 '''
 
 from os import path as ph, readlink as rlnk
-from clIniFile import IniSections, _p, xlist
+from clIniFile import IniSections, _p
 from uiMassFind import  gtk, wg
 
 dbg=False
@@ -94,9 +94,10 @@ class filesFind:
 				mn.cfg['UI'][color_cfg] = color_val
 		mn.updateColors()
 
-	def appChangeFileset(mn, widget):
-		idx = widget.get_active()
+	def appChangeFileset(mn, cb):
+		idx = cb.get_active()
 		if idx > -1:
+			mn.cfg['Main']['fileSet'] = "%i" % idx
 			mn.actionName, mn.reFileset, mn.findDirs = mn.ui.lsFileset[idx]
 
 	def appChangeRoot(mn, widget):
@@ -142,9 +143,9 @@ class filesFind:
 			('Web src', "^.+\.((htm)|(html)|(php\d?)|(py)|(css)|(js)|(txt))$", ('~/Devel/WwW',)),
 			('KiCAD', "^.+\.((pro)|(lib)|(mod)|(brd)|(sch)|(kicad_pcb)|(kicad_mod))$", ('~/Devel/KiCAD',)),
 			('KiCAD Lib Only', "^.+\.((lib)|(mod)|(kicad_mod))$", ('~/Devel/KiCAD',)),
-			#('Python', "mime:text/x-python", ('~/Devel/Python',)),
+			#('Python', "mime:text/x-pyon", ('~/Devel/Python',)),
 			('Python', "^((.+\.py\d*)|([^.]+))$", ('~/Devel/Python',)),
-			('C/C++', "^.+\.((c((p{2})|(x{2}))?)|(h)|(i))$", None),
+			('C/C++', "^.+\.(((c|h)((p{2})|(x{2}))?)|(i))$", None),
 			('rpm Spec', "^(.+\.spec(\.(old)|(or[iy]g))?)$", ('~/Devel/SPECE',)),
 			):
 			findDirs = []
@@ -313,7 +314,7 @@ class filesFind:
 			mn.ui.logView.insert_end(text)
 
 	def Exit(mn):
-		print("Exiting...\n")
+		_p("Exiting...\n")
 		mn.appStopWatchingObject()
 		mn.appCfgStore()
 		mn.ui.uiExit()
@@ -346,7 +347,7 @@ class filesFind:
 		ui = mn.ui
 		mn.cfg = IniSections()
 		rfn = ph.expanduser(__file__)
-		cfgBase = ph.dirname(ph.abspath(rfn))+'/'+ ph.basename(rfn)
+		cfgBase = ui.runpath+'/'+ ph.basename(rfn)
 		mn.old_cfg_fn = cfgBase+'.conf'
 		cfg_fn = cfgBase+'.ini'
 		_p("Config base: '%s'\n" % cfgBase)
@@ -362,17 +363,14 @@ class filesFind:
 		if mn.cfg['Main']['phraseFind']:
 			ui.txtFindPhrase.set_text(mn.cfg['Main']['phraseFind'])
 		mn.lastcfg = mn.cfg['Main'].copy(), mn.cfg['UI'].copy()
-		from dlgEngine import DialogEngine
 		ui.cfg = mn.cfg['UI']
 		mn.defaultColors()
-		ui.dlgEngine = DialogEngine(ui)
 		ui.restoreGeometry()
 
 	def appCfgStore(mn):
 		ui = mn.ui
 		ui.storeGeometry()
 		mn.cfg['Main']['phraseFind'] = ui.txtFindPhrase.get_text()
-		mn.cfg['Main']['fileSet'] = str(int(ui.cbFileset.get_active()))
 		if not(mn.cfg['Main']['FindPath']):
 			mn.cfg['Main'].remove('FindPath')
 		if mn.lastcfg!=(mn.cfg['Main'], mn.cfg['UI']):

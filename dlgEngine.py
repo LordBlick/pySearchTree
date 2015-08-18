@@ -33,7 +33,7 @@ hh = lambda s: s.replace(H, '~')
 from sys import stdout as sto
 _p = lambda _str: sto.write(hh(str(_str)))
 debug = False
-def _l(_str):
+def _dbg(_str):
 	if debug: sto.write(hh(str(_str)))
 """
 Example of use:
@@ -56,21 +56,22 @@ class DialogEngine:
 		size = gdw.get_geometry()[2:4]
 		geo = ','.join(map(lambda i: "%i" % i, pos+size))
 		dlgName = win.get_title()
-		_l("Storing '%s' Window Geometry: %s\n" % (dlgName, geo))
+		_dbg("Storing '%s' Window Geometry: %s\n" % (dlgName, geo))
 		return geo
 
+	#TODO: catch out off screen coordinates
 	def rGeo(it, win, keyGeo):
 		ui = it.ui
 		if hasattr(ui, 'cfg'):
 			s_Geo = ui.cfg.get(keyGeo)
 			if s_Geo:
 				t = tuple(map(int, s_Geo.split(',')))
-				_l("Window: '%s',\n\tx:%i, y:%i, win:%i, h:%i\n" % ((win.get_title(),)+t))
+				_dbg("Window: '%s',\n\tx:%i, y:%i, w:%i, h:%i\n" % ((win.get_title(),)+t))
 				win.move(*t[:2])
 				if win.get_resizable():
 					win.window.resize(*t[2:])
 			else:
-				_l("%s:No UI cfg…\n" % win.get_title())
+				_dbg("%s:No UI cfg…\n" % win.get_title())
 
 	def Hide(it, attr_name, cfg_name, bStore=True):
 		ui = it.ui
@@ -93,19 +94,17 @@ class DialogEngine:
 			geom_t=None, fixed=True, top=False, modal=False, ntrans=False, bw=5, bTestUI=False):
 		"Req ui.mainWindow"
 		ui = it.ui
-		apw = ui.apw
-		gtk = apw.gtk
 		dlg = gtk.Window(gtk.WINDOW_TOPLEVEL) if bTestUI else  gtk.Window()
 		setattr(ui, attr_name, dlg)
 		if type(geom_t) in(tuple, list) and(len(geom_t) in(2, 4)) and(not(False in map(lambda _i: type(_i)==int, geom_t))):
 			if len(geom_t)==2:
 				w, h = geom_t
 				dlg.set_geometry_hints(min_width=w, min_height=h)
-				_l("%s.set_geometry_hints: w>%i, h>%i\n" % (attr_name, w, h))
+				_dbg("%s.set_geometry_hints: w≥%i, h≥%i\n" % (attr_name, w, h))
 			else:
 				w, h, w_, h_ = geom_t
 				dlg.set_geometry_hints(min_width=w, min_height=h, max_width=w_, max_height=h_)
-				_l("%s.set_geometry_hints: %i≥w≥%i, %i≥h≥%i\n" % (attr_name, w_, w, h_, h))
+				_dbg("%s.set_geometry_hints: %i≥w≥%i, %i≥h≥%i\n" % (attr_name, w_, w, h_, h))
 		if not(bTestUI) and(modal):
 			#dlg.set_parent_window(ui.mainWindow.window)
 			dlg.set_modal(True)
@@ -114,12 +113,14 @@ class DialogEngine:
 		dlg.set_border_width(bw)
 		dlg.set_resizable(bool(call_sizer))
 		dlg.set_title(title)
-		if not(bTestUI) or(not(ntrans)):
-			dlg.set_transient_for(ui.mainWindow)
-		dlg.set_destroy_with_parent(True)
-		dlg.set_deletable(False)
-		dlg.set_skip_taskbar_hint(False)
-		dlg.modify_bg(gtk.STATE_NORMAL, apw.BGcolor)
+		if attr_name!='mainWindow':
+			if not(bTestUI and(ntrans)):
+				dlg.set_transient_for(ui.mainWindow)
+			dlg.set_destroy_with_parent(True)
+			dlg.set_deletable(False)
+			dlg.set_skip_taskbar_hint(False)
+		if globals().has_key('BGcolor'):
+			dlg.modify_bg(gtk.STATE_NORMAL, BGcolor)
 		if fixed:
 			dlg.dlgFrame = gtk.Fixed()
 		dlg.Restore = lambda: it.Restore(attr_name, cfg_name)
@@ -138,31 +139,29 @@ class DialogEngine:
 			for s_attr in('Cancel', 'OK'):
 				if hasattr(dlg, 'button'+s_attr):
 					getattr(dlg, 'button'+s_attr).connect("clicked", lambda w: dlg.Hide())
-					_l("Assigned Hide() for %s.button%s\n" % (attr_name, s_attr))
+					_dbg("Assigned Hide() for %s.button%s\n" % (attr_name, s_attr))
 				elif hasattr(dlg, 'dcWgt') and(dlg.dcWgt.has_key(s_attr)):
 					dlg.dcWgt[s_attr].connect("clicked", lambda w: dlg.Hide())
-					_l("Assigned Hide() for %s.dcWgt%s]\n" % (attr_name, s_attr))
+					_dbg("Assigned Hide() for %s.dcWgt%s]\n" % (attr_name, s_attr))
 		return dlg
 
 	def boxCommon(it, hDialog, message, caption):
 		ui = it.ui
-		apw = ui.apw
-		gtk = apw.gtk
 		hDialog.set_markup(message)
 		hDialog.set_title(caption)
-		hDialog.modify_bg(gtk.STATE_NORMAL, ui.apw.BGcolor)
-		for child in hDialog.vbox.children()[0].children()[1].children():
-			child.modify_fg(gtk.STATE_NORMAL, ui.apw.FGcolor)
+		if globals().has_key('BGcolor'):
+			dlg.modify_bg(gtk.STATE_NORMAL, BGcolor)
+		if globals().has_key('FGcolor'):
+			for child in hDialog.vbox.children()[0].children()[1].children():
+				child.modify_fg(gtk.STATE_NORMAL, FGcolor)
 
 	def boxInfo(it, parent=None, message="...", caption = 'Information'):
-		gtk = it.ui.apw.gtk
 		hDialog = gtk.MessageDialog(parent=parent, flags=gtk.DIALOG_DESTROY_WITH_PARENT, type=gtk.MESSAGE_INFO, buttons=gtk.BUTTONS_OK, message_format=None)
 		it.boxCommon(hDialog, message, caption)
 		hDialog.run()
 		hDialog.destroy()
 
 	def boxQst(it, parent=None, message="...?", caption = 'Ωuestion'):
-		gtk = it.ui.apw.gtk
 		hDialog = gtk.MessageDialog(parent=parent, flags=gtk.DIALOG_DESTROY_WITH_PARENT, type=gtk.MESSAGE_QUESTION, buttons=gtk.BUTTONS_YES_NO, message_format=None)
 		it.boxCommon(hDialog, message, caption)
 		answer = hDialog.run()
@@ -170,7 +169,6 @@ class DialogEngine:
 		return answer
 
 	def boxErr(it, parent=None, message="...!", caption = 'error!'):
-		gtk = it.ui.apw.gtk
 		hDialog = gtk.MessageDialog(parent=parent, flags=gtk.DIALOG_DESTROY_WITH_PARENT, type=gtk.MESSAGE_ERROR, buttons=gtk.BUTTONS_CLOSE, message_format=None)
 		it.boxCommon(hDialog, message, caption)
 		hDialog.run()

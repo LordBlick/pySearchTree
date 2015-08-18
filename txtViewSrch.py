@@ -112,7 +112,7 @@ class searchTextView:
 		it.ui = ui
 		it.mainWindow = mainWindow
 		it.textView = textView
-		it.dlgSrch = dlgSrchPos = None
+		it.dlgSrch = it.dlgSrchPos = None
 
 	def dialogFind(it):
 		dlg = it.dlgSrch = gtk.Window(gtk.WINDOW_TOPLEVEL)
