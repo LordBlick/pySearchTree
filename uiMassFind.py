@@ -54,7 +54,7 @@ class massFindUI:
 		ui.dlgEngine = dlgEngine.DialogEngine(ui)
 		dlgEngine.debug = __name__ == "__main__"
 		global _dbg
-		_dbg = dlgEngine
+		_dbg = dlgEngine._dbg
 		_dbg("runpath: %s\n" % rp)
 		if __name__ == "__main__":
 			ui.cfg = {}
