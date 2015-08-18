@@ -70,7 +70,7 @@ class massFindUI:
 		ui.accGroup = gtk.AccelGroup()
 		ui.mainWindow.add_accel_group(ui.accGroup)
 		ui.mainWindow.modify_bg(gtk.STATE_NORMAL, wg.BGcolor)
-		ui.cfBPixbuf = gtk.gdk.pixbuf_new_from_file(rp+"pic/logview.png")
+		ui.cfBPixbuf = gtk.gdk.pixbuf_new_from_file(rp+"/pic/logview.png")
 		gtk.window_set_default_icon_list(ui.cfBPixbuf, )
 		
 		ui.mainFrame = gtk.Fixed()
