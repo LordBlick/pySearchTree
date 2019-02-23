@@ -145,7 +145,7 @@ class filesFind:
 			('KiCAD Lib Only', "^.+\.((lib)|(mod)|(kicad_mod))$", ('~/Devel/KiCAD',)),
 			#('Python', "mime:text/x-pyon", ('~/Devel/Python',)),
 			('Python', "^((.+\.py\d*)|([^.]+))$", ('~/Devel/Python',)),
-			('C/C++', "^.+\.(((c|h)((p{2})|(x{2}))?)|(i))$", None),
+			('C/C++', "^.+\.(((c|h)((p|x){2})?)|(fbp)|(i))$", None),
 			('rpm Spec', "^(.+\.spec(\.(old)|(or[iy]g))?)$", ('~/Devel/SPECE',)),
 			):
 			findDirs = []
