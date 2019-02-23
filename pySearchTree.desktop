@@ -5,7 +5,7 @@ Name=Mass Find
 Comment=
 Exec=massFind
 # Just install somewhere in system/user icon space typical search icon
-Icon=pic/logview.png
+Icon=search
 Path=
 Terminal=false
 StartupNotify=false
