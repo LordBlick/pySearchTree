@@ -1,11 +1,12 @@
-#!/usr/bin/python2
+#!/usr/bin/env python3
 # -*- encoding: utf-8 -*-
 # -*- coding: utf-8 -*-
+# -*- tabstop: 4 -*-
 
 '''
  This program source code file is part of pySearchTree, a text files search application.
  
- Copyright  © 2015 by LordBlick (at) gmail.com
+ Copyright  © 2021 by LordBlick (at) gmail.com
  
  This program is free software; you can redistribute it and/or
  modify it under the terms of the GNU General Public License
@@ -25,21 +26,33 @@
  51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 '''
 
-from os import path as ph, readlink as rlnk
-from clIniFile import IniSections, _p
-from uiMassFind import  gtk, wg
+'''
+useful links for py3 version:
+	https://stackoverflow.com/questions/58691019/threading-in-gtk3-python
+	https://stackoverflow.com/questions/33425202/handling-gtk-objects-on-threads-in-python
+'''
 
-dbg=False
+from os import path as ph, readlink as rlnk
+from clIniFile_py3 import IniSections, _p
+from uiMassFind import Gtk, Gdk, Pango, actions, switches, _d, hh
+from gi.repository import GLib
 
 class filesFind:
 	def __init__(mn):
 		mn.uiInit()
+		GLib.idle_add(mn._iddle_init)
+		mn.ui.Enter()
+
+	def _iddle_init(mn):
+		mn.appCfgLoad()
 		mn.findInit()
 		mn.appStartWatchingObject()
-		gtk.gdk.threads_init()
-		gtk.threads_enter()
-		gtk.main()
-		gtk.threads_leave()
+
+	def appQuit(mn, *w):
+		_p("Exiting...\n")
+		mn.appStopWatchingObject()
+		mn.appCfgStore()
+		mn.ui.Quit()
 
 	global uiFn, rFn
 	uiFn = lambda fileName: fileName.replace(ph.expanduser('~/'), '~/')
@@ -48,39 +61,35 @@ class filesFind:
 	def uiInit(mn):
 		from uiMassFind import massFindUI
 		ui = mn.ui = massFindUI()
-		ui.mainWindow.connect("destroy", lambda xargs: mn.Exit())
-		ui.buttonClear.connect("clicked", mn.appClear)
-		ui.buttonFind.connect("clicked", mn.appFind)
-		ui.buttonBreak.connect("clicked", mn.appBreakFind)
-		ui.buttonExit.connect("clicked", lambda xargs: mn.Exit())
-		ui.cbFileset.connect("changed", mn.appChangeFileset)
-		ui.toggRoot.connect("toggled", mn.appChangeRoot)
+		handlers = {}
+		for hn in actions|switches:
+			handlers['do_'+hn] = getattr(mn, 'app'+hn)
+		ui.bld.connect_signals(handlers)
 		mn.createTxtTags()
 
 	def createTxtTags(mn):
-		pango = wg.pango
 		logBuff = mn.ui.logView.get_buffer()
-		mn.tgFileName = logBuff.create_tag('filename', weight = pango.WEIGHT_BOLD)
-		mn.tgFindPhrase = logBuff.create_tag('phrase', weight = pango.WEIGHT_BOLD)
-		mn.tgFindErr = logBuff.create_tag('error', weight = pango.WEIGHT_BOLD)
-		mn.tgEnum = logBuff.create_tag('line_number', weight = pango.WEIGHT_BOLD)
+		mn.tgFileName = logBuff.create_tag('filename', weight = Pango.Weight.BOLD)
+		mn.tgFindPhrase = logBuff.create_tag('phrase', weight = Pango.Weight.BOLD)
+		mn.tgFindErr = logBuff.create_tag('error', weight = Pango.Weight.BOLD)
+		mn.tgFindWarn = logBuff.create_tag('warning', weight = Pango.Weight.BOLD)
+		mn.tgEnum = logBuff.create_tag('line_number', weight = Pango.Weight.BOLD)
 
 	def updateColors(mn):
 		for color_cfg in(color_set for color_set in mn.cfg['UI'].keys() if color_set[0:2] in('bg', 'fg')):
 			tag_name = color_cfg.replace('bg', 'tg').replace('fg', 'tg')
 			if not(hasattr(mn, tag_name)):
 				mn.cfg['UI'].remove(color_cfg)
-				_p("Unknown mn.tg%s\n" % (color_cfg[0:2]))
+				_p(f"Unknown mn.tg{color_cfg[0:2]}\n")
 				continue
 			try:
-				color = gtk.gdk.color_parse(mn.cfg['UI'][color_cfg])
+				color = Gdk.color_parse(mn.cfg['UI'][color_cfg])
 			except ValueError:
 				mn.cfg['UI'].remove(color_cfg)
-				_p("Unknown color name:'%s' for mn.tg%s\n" % (mn.cfg['UI'][color_cfg], color_cfg[0:2]))
+				_p(f"Unknown color name:'{mn.cfg['UI'][color_cfg]}' for mn.tg{color_cfg[0:2]}\n")
 				continue
 			prop_name = {'bg': 'background-gdk', 'fg': 'foreground-gdk'}[color_cfg[0:2]]
-			if dbg:
-				_p("mn.tag_name.set_property(\"%s\", gtk.gdk.color_parse(mn.cfg['UI'][%s])\n" % (prop_name, color_cfg))
+			#_d(f"mn.tag_name.set_property(\"{prop_name}\", Gdk.color_parse(mn.cfg['UI'][{color_cfg}])\n")
 			getattr(mn, tag_name).set_property(prop_name, color)
 
 	def defaultColors(mn):
@@ -89,7 +98,8 @@ class filesFind:
 			('fgFindPhrase', 'orange'),
 			('bgFindPhrase', '#002818'),
 			('fgFindErr', 'red'),
-			('fgEnum', '#0F0'),):
+			('fgEnum', '#0F0'),
+			('fgFindWarn', '#F85'),):
 			if not(mn.cfg['UI'][color_cfg]):
 				mn.cfg['UI'][color_cfg] = color_val
 		mn.updateColors()
@@ -97,33 +107,38 @@ class filesFind:
 	def appChangeFileset(mn, cb):
 		idx = cb.get_active()
 		if idx > -1:
-			mn.cfg['Main']['fileSet'] = "%i" % idx
-			mn.actionName, mn.reFileset, mn.findDirs = mn.ui.lsFileset[idx]
+			mn.cfg['Main']['fileSet'] = f"{idx}"
+			mn.actionName, t_reFileset, t_findDirs = mn.ui.lsFileset[idx]
+			mn.reFileset = t_reFileset.strip('"')
+			tl_findDirs = t_findDirs.strip("'").split(':')
+			if (len(tl_findDirs)==1) and(tl_findDirs[0]==''):
+				mn.findDirs = None
+				return
+			mn.findDirs = tuple(map(ph.expanduser, tl_findDirs))
 
-	def appChangeRoot(mn, widget):
+	def appChangeRoot(mn, w):
 		ui = mn.ui
-		if widget.get_active():
+		if w.get_active():
 			if mn.cfg['Main']['FindPath']:
-				text = "%s\t" % mn.cfg['Main']['FindPath']
+				text = f"{mn.cfg['Main']['FindPath']}\t"
 			else:
-				fileName = wg.dialogChooseFile(parent=ui.mainWindow,
+				fileName = ui.dialogChooseFile(parent=ui.mainWindow,
 					startDir=ui.lsFileset[ui.cbFileset.get_active()][2][0],
 					title="Select search root", act='dir_open', bShowHidden=True)
 				if fileName:
 					mn.cfg['Main']['FindPath'] = fileName
-					text = "%s\t" % fileName
+					text = f"{fileName}\t"
 				else:
-					widget.set_active(False)
+					w.set_active(False)
 					return
 		else:
 			text = "Choose dir...\t"
 			mn.cfg['Main']['FindPath'] = None
-		label = widget.child
 		if ui.toggMaskHome.get_active():
 			text = uiFn(text)
-		label.set_text(text)
+		w.set_label(text)
 		tooltip = text[:-1]
-		widget.set_tooltip_text(tooltip)
+		w.set_tooltip_text(tooltip)
 
 	def bCfg(mn, cfgStr):
 		v = mn.cfg['Main'][cfgStr]
@@ -133,141 +148,195 @@ class filesFind:
 
 	def findInit(mn):
 		ui = mn.ui
-		mn.appCfgLoad()
-		from glob import glob as ls
 		mn.bSearching = False
 		mn.lsThreads = []
-		for name, reFileset, findRootDirs in (
-			('All files', '', None),
-			('AVR asm', "^.+\.((asm)|(inc))$", ('~/Devel/AVR/asm',)),
-			('Web src', "^.+\.((htm)|(html)|(php\d?)|(py)|(css)|(js)|(txt))$", ('~/Devel/WwW',)),
-			('KiCAD', "^.+\.((pro)|(lib)|(mod)|(brd)|(sch)|(kicad_pcb)|(kicad_mod))$", ('~/Devel/KiCAD',)),
-			('KiCAD Lib Only', "^.+\.((lib)|(mod)|(kicad_mod))$", ('~/Devel/KiCAD',)),
-			#('Python', "mime:text/x-pyon", ('~/Devel/Python',)),
-			('Python', "^((.+\.py\d*)|([^.]+))$", ('~/Devel/Python',)),
-			('C/C++', "^.+\.(((c|h)((p|x){2})?)|(fbp)|(i))$", None),
-			('rpm Spec', "^(.+\.spec(\.(old)|(or[iy]g))?)$", ('~/Devel/SPECE',)),
-			):
-			findDirs = []
-			if findRootDirs:
-				for findRootDir in findRootDirs:
-					walkDir = ph.realpath(ph.expanduser(findRootDir))
-					findDirs.append(walkDir)
-					for fileName in ls("%s/*" % walkDir):
-						if ph.islink(fileName):
-							link_target = ph.realpath(ph.expanduser(rlnk(fileName)))
-							if ph.isdir(link_target):
-								findDirs.append(link_target)
-			else:
-				findDirs = [ph.realpath(ph.expanduser('~/Devel'))]
-			ui.lsFileset.append( (name, reFileset, findDirs) )
-		txtFileSet = mn.cfg['Main']['fileSet']
-		if txtFileSet and(txtFileSet.isdigit()) and(int(txtFileSet)>-1):
-			ui.cbFileset.set_active(int(txtFileSet))
-		else:
-			ui.cbFileset.set_active(0)
-		ui.toggMaskHome.connect("toggled", mn.appMaskHome)
-		ui.toggMaskHome.set_active(int(mn.bCfg('bMaskHome')))
-		ui.toggSrchInfo.connect("toggled", lambda widget:
-				mn.cfg['Main'].__setitem__('bSrchInfo', str(int(widget.get_active()))))
-		ui.toggSrchInfo.set_active(int(mn.bCfg('bSrchInfo')))
+		#All search types rewritten to Glade UI
+		#('Python', "mime:text/x-python", ('~/Devel/Python',)),
 
-	def appMaskHome(mn, widget):
+	appSrchLog = lambda mn, w: mn.ui.stv.showDlgSrch(w)
+
+	def appSrchInfo(mn, w):
+		mn.cfg['Main'].__setitem__('bSrchInfo', str(int(w.get_active())))
+
+	def appMaskHome(mn, w):
 		tr = mn.ui.toggRoot
-		bM = widget.get_active()
+		bM = w.get_active()
 		mn.cfg['Main']['bMaskHome'] = str(int(bM))
 		if tr.get_active():
-			label = tr.child
-			label.set_text((rFn, uiFn)[bM](label.get_text()))
+			tr.set_label((rFn, uiFn)[bM](tr.get_label()))
+			#label = tr.child
+			#label.set_text((rFn, uiFn)[bM](label.get_text()))
 
-		
-
-	def appClear(mn, widget):
+	def appClear(mn, w):
 		mn.ui.logView.clear_text()
 
-	def appBreakFind(mn, widget):
+	def appFindBreak(mn, w):
 		mn.bBreak = True
 
-	def appFind(mn, widget):
+	def appFind(mn, w):
 		if mn.bSearching:
 			return
 		mn.bSearching = True
 		mn.bBreak = False
-		import thread
-		thread.start_new_thread(mn.thrFind, ())
+		mn.phrase =  mn.ui.txtFindPhrase.get_text()
+		import _thread
+		_thread.start_new_thread(mn.thrFind, ())
+		mn.bEndQueueUI = False
+		mn.bQueueOverwork = False
+		GLib.timeout_add(200, mn.tmThreadQueueUI)
+		#TODO: Why no animation?
+		#GLib.timeout_add(50, mn.tmThreadSpinner)
+
+	UI_THREAD_END   = 0
+	UI_THREAD_LOG   = 1
+	UI_WIDGET_SENSE = 2
+	UI_MAX_TASKS    = 10
+
+	def tmThreadSpinner(mn):
+		ui = mn.ui
+		ui.drs.tick()
+		_d(f"tick:{ui.drs.rot}\n")
+		return True
+
+	def tmThreadQueueUI(mn):
+		if mn.bQueueOverwork: # Test if previous call was not ended
+			_d(f"bQueueOverwork:{mn.bQueueOverwork}\n")
+			return True
+		mn.bQueueOverwork = True
+		ui = mn.ui
+		utq = mn.uiThreadQueue
+		if mn.bModQueue:
+			_d(f"bModQueue:{mn.bModQueue}\n")
+			mn.bQueueOverwork = False
+			return True
+		while utq:
+			mn.bPopQueue = True
+			task_type, task_p1, task_p2  = utq.pop(0)
+			mn.bPopQueue = False
+			if task_type==mn.UI_THREAD_END or(mn.bEndQueueUI):
+				if not(utq): # Care about QueueUI tasks are all done before end
+					ui.drs.rot = 0
+					ui.drs.refresh()
+					mn.bQueueOverwork = False
+					return False
+				else:
+					mn.bEndQueueUI = True
+			elif task_type==mn.UI_THREAD_LOG:
+				if task_p2:
+					#ui.logView._p(task_p1, tag=task_p2, short_path=True)
+					ui.logView._p(task_p1, tag=task_p2)
+				else:
+					ui.logView._p(task_p1)
+			elif task_type==mn.UI_WIDGET_SENSE:
+				getattr(ui, task_p1).set_sensitive(task_p2)
+		mn.bQueueOverwork = False
+		return True
+
+
+	def thrAppendQueue(mn, *t):
+		while mn.bPopQueue:
+			_d(f"bPopQueue:„{mn.bPopQueue}”\n")
+			pass
+		mn.bModQueue = True
+		mn.uiThreadQueue.append(*t)
+		mn.bModQueue = False
+
+	thrEnd = lambda mn: mn.thrAppendQueue((mn.UI_THREAD_END, '', ''))
 
 	def thrPrint(mn, text, tag=None):
-		gtk.threads_enter()
-		try:
-			if tag:
-				mn.ui.logView.insert_end(text, tag=tag)
-			else:
-				mn.ui.logView.insert_end(text)
-		finally: gtk.threads_leave()
+		mn.thrAppendQueue((mn.UI_THREAD_LOG, text, tag))
 
 	def thrFind(mn):
 		bFound = False
+		dec = lambda t: t.decode(codepage, 'ignore')
 		from os import walk
 		import re
 		from magic import open as fmo, MIME
 		mime=fmo(MIME)
 		mime.load()
-		regex = mime_ex = phrase = ''
-		gtk.threads_enter()
-		try: phrase = mn.ui.txtFindPhrase.get_text()
-		finally: gtk.threads_leave()
+		regex_nms = None
+		mime_ex = ''
+		phrase = mn.phrase
+		if not(hasattr(mn, 'reFileset')):
+			mn.reFileset = ""
+		if not(hasattr(mn, 'actionName')):
+			mn.actionName = ""
+		_d(f"phrase:„{phrase}”\nmn.reFileset:„{mn.reFileset}”\n")
 		if mn.bCfg('bSrchInfo'):
-			mn.thrPrint("Searching for regex:'%s'...\n" % phrase)
+			mn.thrPrint(f"Searching for regex_nms:'{phrase}'...\n")
 		if not phrase:
-			mn.thrPrint("Empty regex input...\n", tag=mn.tgFindErr)
+			mn.thrPrint("Empty regex_nms input...\n", tag=mn.tgFindErr)
+			mn.thrEnd()
 			mn.bSearching = False
 			return
 		try:
 			rexFindIt = re.compile(phrase, re.U)
 		except:
-			mn.thrPrint("This isn't correct regular expression:'%s'\n" % phrase, tag=mn.tgFindErr)
+			mn.thrPrint(f"This isn't correct regular expression:'{phrase}'\n", tag=mn.tgFindErr)
+			mn.thrEnd()
 			mn.bSearching = False
 			return
-		gtk.threads_enter()
-		try: mn.ui.buttonFind.set_sensitive(False)
-		finally: gtk.threads_leave()
+		mn.thrAppendQueue((mn.UI_WIDGET_SENSE, 'buttFind', False))
 		if mn.reFileset:
 			if mn.reFileset.startswith('mime:'):
 				mime_ex = mn.reFileset[5:]
 			else:
-				regex = re.compile(mn.reFileset, re.I | re.U)
+				regex_nms = re.compile(mn.reFileset, re.I | re.U)
 		else:
-			regex = re.compile('.*', re.I | re.U)
+			regex_nms = re.compile('.*', re.I | re.U)
 		if mn.cfg['Main']['FindPath']:
 			findDirs = (mn.cfg['Main']['FindPath'], )
 		else:
 			findDirs = mn.findDirs
+		_d(f"findDirs:„{findDirs}”\n")
 		if mn.actionName=='AVR asm':
 			codepage = 'cp1250'
 		else:
 			codepage = 'utf-8'
 		for findDir in findDirs:
+			#_d(f"Loop active, findDir:„{findDir}”\n")
 			for findRoot, fDir, findFiles in walk(findDir):
+				#_d(f"Loop active, findFiles:„{findFiles}”\n")
 				if mn.bBreak:
 					break
 				if not findFiles:
 					continue
 				for fileName in findFiles:
+					#_d(f"Loop active, fileName:„{fileName}”\n")
+					bFileSkip = False
 					if mn.bBreak:
 						break
 					fullFileName = '/'.join((findRoot, fileName))
-					if not(regex and(regex.match(fileName)) or(mime_ex and(mime.file(fullFileName).startswith(mime_ex)))):
+					if not(regex_nms and(regex_nms.match(fileName)) or(mime_ex and(mime.file(fullFileName).startswith(mime_ex)))):
 						continue
 					while ph.islink(fullFileName):
-						link_target = ph.realpath(ph.expanduser("%s/%s" % (findRoot, rlnk(fullFileName))))
+						link_target = ph.realpath(ph.expanduser(f"{findRoot}/{rlnk(fullFileName)}"))
+						#_d(f"Resolving link loop, fullFileName:\n\t„{fullFileName}”→\n\t„{link_target}”\n")
+						if fullFileName==link_target:
+							for txtslice, cTag in(
+								("Found filesystem link pointing to himself:„", 2), (fullFileName, 1), ("”, consider it's necessity, skipping…\n", 2) ):
+								mn.thrPrint(txtslice, tag=(None, mn.tgFileName, mn.tgFindWarn)[cTag])
+							fullFileName = '' #clear to escape Infinite loop
+							break
 						fullFileName = link_target
 					if not(ph.isfile(fullFileName)):
 						continue
-					hFile = open(fullFileName, 'r')
+					try:
+						hFile = open(fullFileName, 'r')
+					except PermissionError:
+						for txtslice, cTag in(
+							("This file permisions:„", 2), (fullFileName, 1), ("” does not allow to read it…\n", 2) ):
+							mn.thrPrint(txtslice, tag=(None, mn.tgFileName, mn.tgFindWarn)[cTag])
+						continue
 					if not(hFile):
 						continue
-					fileData = hFile.read()
+					try: fileData = hFile.read()
+					except UnicodeDecodeError as e:
+						#_d(f"With file„{hh(fullFileName)}” we caught exception:\n\t„{e}”\n")
+						bFileSkip = True
 					hFile.close()
+					if bFileSkip:
+						continue # ussualy some binary, skip
 					bFnd = False
 					for idx, line in enumerate(fileData.splitlines()):
 						slices = []
@@ -279,11 +348,12 @@ class filesFind:
 							if mn.bCfg('bMaskHome'):
 								fullFileName = fullFileName.replace(ph.expanduser('~'), '~')
 							for txtslice, cTag in(
-								("In:'", 0), (fullFileName, 1), ("':\n", 0) ):
+								("In:'", 0), (hh(fullFileName), 1), ("':\n", 0) ):
 								mn.thrPrint(txtslice, tag=(None, mn.tgFileName)[cTag])
 							bFnd = True
 							if not(bFound):
 								bFound = True
+						#TODO: convert to autoformat with count lines and use F-string
 						slices.append(("%3d:" % (idx+1), 1))	#	tag=mn.tgEnum
 						while tmpline:
 							srchB, srchE = lmatch.span()
@@ -296,15 +366,18 @@ class filesFind:
 								break
 						for txtslice, cTag in slices:
 							if txtslice:
-								mn.thrPrint(txtslice.decode(codepage, 'ignore'), tag=(None, mn.tgEnum, mn.tgFindPhrase)[cTag])
+								if type(txtslice)==str:
+									mn.thrPrint(txtslice, tag=(None, mn.tgEnum, mn.tgFindPhrase)[cTag])
+								else:
+									mn.thrPrint(dec(txtslice), tag=(None, mn.tgEnum, mn.tgFindPhrase)[cTag])
 						mn.thrPrint('\n')
-		gtk.threads_enter()
-		try: mn.ui.buttonFind.set_sensitive(True)
-		finally: gtk.threads_leave()
+		_d(f"Loop end, findDir:„{findDir}”\n")
+		mn.thrAppendQueue((mn.UI_WIDGET_SENSE, 'buttFind', True))
 		if mn.bBreak:
 			mn.thrPrint("Searching aborted...\n", tag=mn.tgFindErr)
 		if not(bFound):
 			mn.thrPrint("Searched phrase not found...\n", tag=mn.tgFindErr)
+		mn.thrEnd()
 		mn.bSearching = False
 
 	def callWriteCmdBuff(mn, fd, condition):
@@ -313,16 +386,11 @@ class filesFind:
 			text = line.rstrip()
 			mn.ui.logView.insert_end(text)
 
-	def Exit(mn):
-		_p("Exiting...\n")
-		mn.appStopWatchingObject()
-		mn.appCfgStore()
-		mn.ui.uiExit()
-
 	def appStartWatchingObject(mn):
+		'''
 		from os import fdopen as fdo, O_NDELAY as NO_DELAY
-		from gobject import io_add_watch as addWatch
-		from gobject import IO_IN as ioIN, IO_HUP as ioHUP
+		addWatch = GLib.io_add_watch
+		ioIN, ioHUP = GLib.IO_IN, GLib.IO_HUP
 		import pty, fcntl
 		mn.ptyProc = None
 		mn.pty_parent_fd, mn.pty_child_fd = pty.openpty()
@@ -330,8 +398,13 @@ class filesFind:
 		file_flags = fcntl.fcntl(mn.fd, fcntl.F_GETFL)
 		fcntl.fcntl(mn.fd, fcntl.F_SETFL, file_flags|NO_DELAY)
 		mn.watchID = addWatch(mn.fd,  ioIN | ioHUP,  mn.callWriteCmdBuff)
+		'''
+		mn.uiThreadQueue = []
+		mn.bModQueue = False
+		mn.bPopQueue = False
 
 	def appStopWatchingObject(mn):
+		'''
 		import subprocess
 		import time
 		if type(mn.ptyProc) is subprocess.Popen:
@@ -339,37 +412,54 @@ class filesFind:
 			while mn.ptyProc.poll() == None:
 				time.sleep(0.1)
 			mn.ptyProc = None
-		from gobject import source_remove as unWatch
+		unWatch = GLib.source_remove
 		unWatch(mn.watchID)
 		mn.fd.close()
+		'''
+		pass
 
-	def appCfgLoad(mn):
+	def appCfgLoad(mn, restoreGeo=True):
 		ui = mn.ui
 		mn.cfg = IniSections()
 		rfn = ph.expanduser(__file__)
 		cfgBase = ui.runpath+'/'+ ph.basename(rfn)
 		mn.old_cfg_fn = cfgBase+'.conf'
 		cfg_fn = cfgBase+'.ini'
-		_p("Config base: '%s'\n" % cfgBase)
+		_p(f"Config base: '{cfgBase}'\n")
 		if ph.isfile(cfg_fn):
 			mn.cfg.load(cfg_fn)
-			_p("Loaded Config file: '%s'\n" % (cfg_fn))
+			_p(f"Loaded Config file: '{cfg_fn}'\n")
 		if not(len(mn.cfg)) and(ph.isfile(mn.old_cfg_fn)):
 			mn.cfg.load_old_cfg(mn.old_cfg_fn)
-			_p("Config file: '%s'\n" % (mn.old_cfg_fn))
-			_p("→New Config file: '%s'\n" % (cfg_fn))
+			_p(f"Config file: '{mn.old_cfg_fn}'\n")
+			_p(f"→New Config file: '{cfg_fn}'\n")
 		mn.cfg.filename = cfg_fn
 		ui.toggRoot.set_active(bool(mn.cfg['Main']['FindPath']))
 		if mn.cfg['Main']['phraseFind']:
 			ui.txtFindPhrase.set_text(mn.cfg['Main']['phraseFind'])
 		mn.lastcfg = mn.cfg['Main'].copy(), mn.cfg['UI'].copy()
-		ui.cfg = mn.cfg['UI']
 		mn.defaultColors()
-		ui.restoreGeometry()
+		idxFileSet, idx_t = 0, -1
+		txtFileSet = mn.cfg['Main']['fileSet']
+		if txtFileSet and(txtFileSet.isdigit()):
+			idx_t = int(txtFileSet)
+		if idx_t>-1:
+			idxFileSet = idx_t
+		ui.cbFileset.set_active(idxFileSet)
+		ui.toggMaskHome.set_active(int(mn.bCfg('bMaskHome')))
+		ui.toggSrchInfo.set_active(int(mn.bCfg('bSrchInfo')))
+		if restoreGeo:
+			ui.cfg = mn.cfg['UI']
+			_d(f"type of ui.cfg:{type(ui.cfg)}\n")
+			mnTxtGeo = ui.cfg.get('MainWindowGeometry', '')
+			if mnTxtGeo:
+				ui.setTxtWinGeometry(ui.mainWindow, mnTxtGeo)
+			else:
+				_d(f"Strange situation, no MainWindowGeometry cfg\n")
 
 	def appCfgStore(mn):
 		ui = mn.ui
-		ui.storeGeometry()
+		ui.cfg['MainWindowGeometry'] = ui.getTxtWinGeometry(ui.mainWindow)
 		mn.cfg['Main']['phraseFind'] = ui.txtFindPhrase.get_text()
 		if not(mn.cfg['Main']['FindPath']):
 			mn.cfg['Main'].remove('FindPath')

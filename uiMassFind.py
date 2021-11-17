@@ -1,11 +1,12 @@
-#!/usr/bin/python2
+#!/usr/bin/env python3
 # -*- encoding: utf-8 -*-
 # -*- coding: utf-8 -*-
+# -*- tabstop: 4 -*-
 
 '''
  This program source code file is part of pySearchTree, a text files search application.
  
- Copyright  © 2015 by LordBlick (at) gmail.com
+ Copyright  © 2021 by LordBlick (at) gmail.com
  
  This program is free software; you can redistribute it and/or
  modify it under the terms of the GNU General Public License
@@ -25,138 +26,288 @@
  51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 '''
 
-from txtViewSrch import searchTextView
-from wgts import gtk, pango
-import wgts as wg
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gdk, Pango, GLib
+
+from os import path as ph
+H = ph.expanduser('~') # Home dir
+#hh = lambda s: s.replace(H, '~').replace('/mnt/WinStore/Cars/Dump', '«Cars Dump»')
+hh = lambda s: s.replace(H, '~').replace('/home/lordblick/Store/Cars/Dump', '«Cars Dump»')
+from sys import stdout as sto
+_p = lambda _str: sto.write(hh(str(_str)))
+debug = (False, True)[1]
+def _d(_str):
+	if debug: _p(_str)
+
+class searchTextView:
+	def __init__(it, ui, mainWindow, textView):
+		it.ui = ui
+		it.dlgSrchPos = None
+		it.mainWindow = mainWindow
+		it.textView = textView
+		dlg = it.dlgSrch = ui.bld.get_object('dlgSrch')
+		dlg.Entry = ui.bld.get_object('eFind')
+		dlg.Entry.connect("changed", it.searchFor, 'interactive')
+		bp = ui.bld.get_object('bp')
+		bp.connect("clicked", it.searchFor, 'backward')
+		bn = ui.bld.get_object('bn')
+		bn.connect("clicked", it.searchFor, 'forward')
+		bOK = ui.bld.get_object('bOK')
+		bOK.connect("clicked", lambda xargs: it.hideDlgSrch())
+		dlg.found = None
+		dlg.flags = Gtk.TextSearchFlags.TEXT_ONLY | Gtk.TextSearchFlags.VISIBLE_ONLY # CASE_INSENSITIVE
+		#dlg.show_all()
+
+	def showDlgSrch(it, widget):
+		it.dlgSrch.present()
+		dlg = it.dlgSrch
+		if it.dlgSrchPos:
+			dlg.move(*it.dlgSrchPos)
+		txtBuff = it.textView.get_buffer()
+		sel = txtBuff.get_selection_bounds()
+		if sel:
+			dlg.found = sel
+			dlg.Entry.set_text(txtBuff.get_text(*sel))
+		dlg.set_keep_above(True)
+
+	def hideDlgSrch(it):
+		dlg = it.dlgSrch
+		if dlg and(dlg.get_property("visible")):
+			it.dlgSrchPos = dlg.get_position()
+			dlg.hide()
+
+	def getFound(it, txtBuff, srchType, txtSrch):
+		dlg = it.dlgSrch
+		if it.textView.changed:
+			print("skip")
+			dlg.found = None
+			it.textView.changed = False
+		if dlg.found:
+			if srchType in ('interactive', 'backward'):
+				iterB = dlg.found[0]
+			else:
+				iterB = dlg.found[1]
+		else:
+			iterB = None
+		if not(iterB):
+			if srchType in ('interactive', 'forward'):
+				iterB = txtBuff.get_start_iter()
+			else:
+				iterB = txtBuff.get_end_iter()
+		if srchType in ('interactive', 'forward'):
+			return iterB.forward_search(txtSrch, dlg.flags, None)
+		else:
+			return iterB.backward_search(txtSrch, dlg.flags, None)
+
+	def searchFor(it, widget, srchType):
+		dlg = it.dlgSrch
+		txtSrch = dlg.Entry.get_text()
+		if txtSrch:
+			txtBuff = it.textView.get_buffer()
+			lastfound = dlg.found
+			found = dlg.found = it.getFound(txtBuff, srchType, txtSrch)
+			if lastfound and(not(found)):
+				found = dlg.found = it.getFound(txtBuff, srchType, txtSrch)
+			if found:
+				it.textView.scroll_to_iter (found[0], 0)
+				txtBuff.select_range(*found)
+
+class logViewAddon:
+	def __init__(it, lv):
+		it.lv = lv
+		lv.set_text = lambda txt: lv.get_buffer().set_text(txt)
+		lv.clear_text = lambda: lv.set_text('')
+		lv._p = it._p
+
+	#set_text = lambda it, txt: it.lv.get_buffer().set_text(txt)
+	#clear_text = lambda it: it.lv.set_text('')
+
+	def _p(it, txt, tag=None, short_path=False):
+		buff = it.lv.get_buffer()
+		end = buff.get_end_iter()
+		#text = txt.encode('utf-8', errors='replace')
+		text = hh(txt) if short_path else txt
+		if tag:
+			buff.insert_with_tags(end, text, tag)
+		else:
+			buff.insert(end, text)
+		del(end)
+		it.changed = True
+
+circles = 8 # Warning: At least 2 circles…
+rot_radius = 12
+circle_radius_min = 1
+circle_radius_max = 4
+circle_radius_step = (circle_radius_max-circle_radius_min)/(circles-1)
+import cairo
+import math
+
+
+class SpinnerDrawer():
+	def __init__(it, drwArea):
+		drwArea.__init__()
+		it.drwArea = drwArea
+		it.rot = 0
+		drwArea.connect("draw", it.on_draw)
+		it.refresh()
+
+	def refresh(it):
+		rect = it.drwArea.get_allocation()
+		drw_wnd = it.drwArea.get_window()
+		if drw_wnd:
+			drw_wnd.invalidate_rect(rect, True)
+
+	def tick(it):
+		it.refresh()
+		it.rot = round(it.rot+.1, 1)
+		if it.rot>2*math.pi:
+			it.rot = round(it.rot-2*math.pi, 1)
+		return True
+
+	def on_draw(it, w, event):
+		drw_wnd = w.get_window()
+		it.cr = drw_wnd.cairo_create()
+		geom = drw_wnd.get_geometry()
+		it.draw(geom.width, geom.height)
+
+	def draw(it, width, height):
+		cr = it.cr
+		matrix = cairo.Matrix(1, 0, 0, 1, width/2, height/2)
+		cr.transform(matrix) # Make it so...
+		cr.save()
+		ThingMatrix = cairo.Matrix(1, 0, 0, 1, 0, 0)
+		cairo.Matrix.translate(ThingMatrix, 0, 0)
+		cr.transform(ThingMatrix)
+		cairo.Matrix.rotate(ThingMatrix, it.rot)
+		cr.transform(ThingMatrix)
+		it.drawSpinner(cr)
+		cr.restore()
+
+	def drawSpinner(it, cr):
+		angle_step = 2*math.pi/circles
+		for idx in reversed(range(circles)):
+			circle_data = math.sin(idx*angle_step)*rot_radius, math.cos(idx*angle_step)*rot_radius,\
+				circle_radius_max-circle_radius_step*idx, 0, 2*math.pi
+			cr.arc(*circle_data)
+			cr.set_source_rgb(idx/(circles-1), 1-idx/(circles-1), .0)
+			cr.fill()
+			cr.set_line_width(0.8)
+			cr.arc(*circle_data)
+			cr.set_source_rgb(1, 1, 1)
+			cr.stroke()
+
+actions  = set('Clear Find FindBreak SrchLog Quit'.split())
+switches = set('ChangeFileset ChangeRoot SrchInfo MaskHome'.split())
+widgets = set('mainWindow accMain logView labFileset lsFileset '\
+			'rendFileset cbFileset drwSpinner toggRoot '\
+			'toggMaskHome toggSrchInfo labFindPhrase txtFindPhrase'.split())
+
 class massFindUI:
 	def __init__(ui):
-		ui.fontDesc = pango.FontDescription('Univers,Sans Condensed 7')
-		ui.fontSmall = pango.FontDescription('Univers,Sans Condensed 8')
-		ui.fontFixedDesc = pango.FontDescription('Terminus,Monospace Bold 7')
-		wg.BGcolor = gtk.gdk.Color('#383430')
-		wg.FGcolor = gtk.gdk.Color('#FFF')
-		wg.BGcolorEntry = gtk.gdk.Color('#201810')
-		wg.Height = 22
 		ui.uiInit()
 		if __name__ == "__main__":
-			ui.mainWindow.connect("destroy", lambda w: gtk.main_quit())
-			ui.buttonExit.connect("clicked", lambda w: gtk.main_quit())
-			ui.logView.insert_end("User Interface Test...\n")
+			ui.mainWindow.connect("destroy", lambda w: Gtk.main_quit())
+			ui.buttQuit.connect("clicked", lambda w: Gtk.main_quit())
+			ui.buttClear.connect("clicked", lambda x: ui.logView.clear_text())
+			ui.buttSearchLog.connect("clicked", ui.stv.showDlgSrch)
+			ui._p("User Interface Test...\n")
 			ui.uiEnter()
 
-	uiEnter = lambda ui: gtk.main()
-	uiExit = lambda ui: gtk.main_quit()
+	Enter = lambda ui: Gtk.main()
+	Quit  = lambda ui: Gtk.main_quit()
+	bt_id = lambda ui, base_id: f"butt{base_id}"
 
 	def uiInit(ui):
-		from os import path as ph
 		rp = ui.runpath = ph.dirname(ph.realpath(__file__))
-		import dlgEngine
-		ui.dlgEngine = dlgEngine.DialogEngine(ui)
-		dlgEngine.debug = __name__ == "__main__"
-		global _dbg
-		_dbg = dlgEngine._dbg
-		_dbg("runpath: %s\n" % rp)
 		if __name__ == "__main__":
 			ui.cfg = {}
-		from gobject import TYPE_STRING as goStr, TYPE_INT as goInt, TYPE_PYOBJECT as goPyObj
-		ui.title="pySearchTree V.0.8"
-		ui.mainWindow = gtk.Window(gtk.WINDOW_TOPLEVEL)
-		w, h = ui.wBase, ui.hBase = (510, 350)
-		ui.mainWindow.set_geometry_hints(
-			min_width=w, min_height=h)
-		ui.mainWindow.resize(w, h)
-		ui.mainWindow.set_title(ui.title)
-		ui.mainWindow.set_border_width(5)
-		ui.accGroup = gtk.AccelGroup()
-		ui.mainWindow.add_accel_group(ui.accGroup)
-		ui.mainWindow.modify_bg(gtk.STATE_NORMAL, wg.BGcolor)
-		ui.cfBPixbuf = gtk.gdk.pixbuf_new_from_file(rp+"/pic/logview.png")
-		gtk.window_set_default_icon_list(ui.cfBPixbuf, )
-		
-		ui.mainFrame = gtk.Fixed()
 
-		ui.logView = wg.TextView(ui.mainFrame, 5, 5, 0, 0,
-			bEditable=False, tabSpace=4, fontDesc = ui.fontFixedDesc)
-		ui.stv = searchTextView(ui, ui.mainWindow, ui.logView)
+		ui.bld = Gtk.Builder()
+		ui.bld.add_from_file(ph.join(ph.dirname(ph.abspath(__file__)), 'ui', 'pySearchTree.ui'))
+		for action in actions:
+			bt_id = ui.bt_id(action)
+			setattr(ui, bt_id, ui.bld.get_object(bt_id))
+		for wg_id in widgets:
+			setattr(ui, wg_id, ui.bld.get_object(wg_id))
 
-		ui.labFileset = wg.Label("Type:", ui.mainFrame, 0, 0, 32)
-		ui.lsFileset = gtk.ListStore(goStr, goStr, goPyObj)
-		ui.cbFileset = wg.ComboBox(ui.lsFileset, ui.mainFrame, 0, 0, 130, wrap=2)
-
-		ui.toggRoot = wg.Toggle("Choose dir...\t", ui.mainFrame, 0,  0, 0)
-
-		ui.toggMaskHome = wg.Toggle("~", ui.mainFrame, 0,  0, 25)
-		ui.toggMaskHome.set_tooltip_text('Toggle Mask Home')
-
-		ui.toggSrchInfo = wg.Toggle("?", ui.mainFrame, 0,  0, 25)
-		ui.toggSrchInfo.set_tooltip_text('Toggle Startup Search Info')
-
-		ui.buttonSearchLog = wg.Butt(None, ui.mainFrame, 0, 0, 25, height=25, stockID=gtk.STOCK_FIND)
-		ui.buttonSearchLog.add_accelerator("clicked", ui.accGroup, ord('F'),
-			gtk.gdk.CONTROL_MASK, gtk.ACCEL_VISIBLE)
-		ui.buttonSearchLog.connect("clicked", ui.stv.showDlgSrch)
-
-		ui.labFindPhrase = wg.Label("Phrase:", ui.mainFrame, 0, 0, 37)
-		ui.txtFindPhrase = wg.Entry(ui.mainFrame, 0, 0, 190, clearIco=True)
-
-		ui.buttonFind = wg.Butt("Find", ui.mainFrame, 0,  0, 50)
-
-		ui.buttonBreak = wg.Butt("Stop", ui.mainFrame, 0,  0, 50)
-
-		ui.buttonClear = wg.Butt("Clear", ui.mainFrame, 0,  0, 50)
-		ui.buttonClear.connect("clicked", lambda x: ui.logView.clear_text())
-
-		ui.buttonExit = wg.Butt("Exit (Ctrl+Q)", ui.mainFrame, 0, 0, 80)
-		ui.buttonExit.add_accelerator(
-			"clicked",
-			ui.accGroup,
-			ord('Q'),
-			gtk.gdk.CONTROL_MASK,
-			gtk.ACCEL_VISIBLE)
-		
-		ui.mainWindow.add(ui.mainFrame)
+		geo = Gdk.Geometry()
+		geo.min_width, geo.min_width = 510, 350
+		ui.mainWindow.set_geometry_hints(None, geo, Gdk.WindowHints.MIN_SIZE)
 		ui.mainWindow.show_all()
 		ui.mainWindow.set_keep_above(True)
-		ui.lastWinSize = None
-		ui.mainWindow.connect("configure-event", ui.uiSize)
+		ui.mainWindow.present()
 
-	def uiSize(ui, window, event):
-		if event.type==gtk.gdk.CONFIGURE:
-			w, h = event.width, event.height
-			if ui.lastWinSize==(w, h):
-				return True
-			ui.lastWinSize = w, h
-			y = h-70
-			ui.logView.set_size_request(w-20, h-80)
-			ui.mainFrame.move(ui.labFileset, 5, y)
-			ui.mainFrame.move(ui.cbFileset, 40, y-2)
-			ui.mainFrame.move(ui.toggRoot, 175, y)
-			ui.toggRoot.set_size_request(w-280, wg.Height)
-			ui.mainFrame.move(ui.toggMaskHome, w-100, y)
-			ui.mainFrame.move(ui.toggSrchInfo,  w-70, y)
-			ui.mainFrame.move(ui.buttonSearchLog, w-40, y-1)
-			y += 30
-			ui.mainFrame.move(ui.labFindPhrase, 5, y)
-			ui.mainFrame.move(ui.txtFindPhrase, 45, y-1)
-			ui.txtFindPhrase.set_size_request(w-320, 25)
-			ui.mainFrame.move(ui.buttonFind, w-265, y)
-			ui.mainFrame.move(ui.buttonBreak, w-210, y)
-			ui.mainFrame.move(ui.buttonClear, w-155, y)
-			ui.mainFrame.move(ui.buttonExit, w-95, y)
-			return True
+		ui.lva = logViewAddon(ui.logView)
+		ui._p = ui.logView._p
+		ui.stv = searchTextView(ui, ui.mainWindow, ui.logView)
+		ui.drs = SpinnerDrawer(ui.drwSpinner)
+		ui.drwSpinner.set_size_request(48, 48)
 
-	def restoreGeometry(ui):
-		if hasattr(ui, 'stv') and(ui.cfg['dlgSrchPos']):
-			ui.stv.dlgSrchPos =  tuple(map(lambda k: int(k), ui.cfg['dlgSrchPos'].split(',')))
-		ui.rGeo(ui.mainWindow, 'MainWindowGeometry')
 
-	def storeGeometry(ui):
-		if hasattr(ui, 'stv'):
-			stv = ui.stv
-			stv.hideDlgSrch()
-			if stv.dlgSrchPos:
-				ui.cfg['dlgSrchPos'] = "%i,%i" % stv.dlgSrchPos
-		ui.cfg['MainWindowGeometry'] = ui.sGeo(ui.mainWindow)
+
+	def getWinGeometry(ui, win):
+		pos = win.get_position()
+		size = win.get_size()
+		return pos.root_x, pos.root_y, size.width, size.height
+
+	def getTxtWinGeometry(ui, win):
+		geo = ui.getWinGeometry(win)
+		txtGeo = ','.join(map(lambda i: "%i" % i, geo))
+		dlgName = win.get_title()
+		_d(f"Current Window „{dlgName}” geometry: {txtGeo}\n")
+		return txtGeo
+
+	def setWinGeometry_timed(ui, win, geo):
+		_d(f"Repositioning Window: „{win.get_title()}” to:\n")
+		_d(f"pos: x:{geo[0]}, y:{ geo[1]}\n")
+		_d(f"size: w:{geo[2]}, h:{geo[3]}\n")
+		gdw = win.get_window()
+		gdw.move_resize(*geo)
+		return False # run only once
+
+	def setWinGeometry(ui, win, geo):
+		GLib.idle_add(ui.setWinGeometry_timed, win, geo)
+
+	def setTxtWinGeometry(ui, win, txtGeo):
+		geo = tuple(map(int, txtGeo.split(',')))
+		if len(geo)==4:
+			ui.setWinGeometry(win, geo)
+		else:
+			_d(f"Strange geo situation:{geo}\n")
+
+	#TODO: use Glade dialog included already in UI file
+	def dialogChooseFile(ui, parent=None, startDir=None, startFile=None, filters=None, title='Select a file...', act='file_open', bShowHidden=False):
+		action = {
+			'file_open': Gtk.FileChooserAction.OPEN,
+			'file_save': Gtk.FileChooserAction.SAVE,
+			'dir_open': Gtk.FileChooserAction.SELECT_FOLDER,
+			'dir_create': Gtk.FileChooserAction.CREATE_FOLDER,
+			}[act]
+		hDialog = Gtk.FileChooserDialog(title=title, parent=parent, action=action,
+			buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK) )
+		if filters:
+			for fnFilter in filters:
+				hDialog.add_filter(fnFilter)
+			allFilter = Gtk.FileFilter()
+			allFilter.set_name("All files (*.*)")
+			allFilter.add_pattern("*")
+			hDialog.add_filter(allFilter)
+		hDialog.set_default_response(Gtk.ResponseType.OK)
+		hDialog.set_show_hidden(bShowHidden)
+		if startDir:
+			hDialog.set_current_folder(startDir)
+		if startFile:
+			if act=='file_save':
+				hDialog.set_current_name(startFile)
+			elif act=='file_open':
+				hDialog.set_filename(startFile)
+		respFileName = hDialog.run()
+		fileName = None
+		if respFileName==Gtk.ResponseType.OK:
+			fileName = hDialog.get_filename()
+		hDialog.destroy()
+		return fileName
 
 # Entry point
 if __name__ == "__main__":
