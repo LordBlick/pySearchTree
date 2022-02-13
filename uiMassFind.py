@@ -32,8 +32,7 @@ from gi.repository import Gtk, Gdk, Pango, GLib
 
 from os import path as ph
 H = ph.expanduser('~') # Home dir
-#hh = lambda s: s.replace(H, '~').replace('/mnt/WinStore/Cars/Dump', '«Cars Dump»')
-hh = lambda s: s.replace(H, '~').replace('/home/lordblick/Store/Cars/Dump', '«Cars Dump»')
+hh = lambda s: s.replace(H, '~')
 from sys import stdout as sto
 _p = lambda _str: sto.write(hh(str(_str)))
 debug = (False, True)[1]
