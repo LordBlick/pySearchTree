@@ -48,7 +48,7 @@ class filesFind:
 		mn.findInit()
 		mn.appStartWatchingObject()
 
-	def appQuit(mn, *w):
+	def go_Quit(mn, *w):
 		_p("Exiting...\n")
 		mn.appStopWatchingObject()
 		mn.appCfgStore()
@@ -61,50 +61,45 @@ class filesFind:
 	def uiInit(mn):
 		from uiMassFind import massFindUI
 		ui = mn.ui = massFindUI()
-		handlers = {}
+		handlers = ui.Connections()
 		for hn in actions|switches:
-			handlers['do_'+hn] = getattr(mn, 'app'+hn)
+			handlers['do_'+hn] = getattr(mn, 'go_'+hn)
 		ui.bld.connect_signals(handlers)
-		mn.createTxtTags()
-
-	def createTxtTags(mn):
-		logBuff = mn.ui.logView.get_buffer()
-		mn.tgFileName = logBuff.create_tag('filename', weight = Pango.Weight.BOLD)
-		mn.tgFindPhrase = logBuff.create_tag('phrase', weight = Pango.Weight.BOLD)
-		mn.tgFindErr = logBuff.create_tag('error', weight = Pango.Weight.BOLD)
-		mn.tgFindWarn = logBuff.create_tag('warning', weight = Pango.Weight.BOLD)
-		mn.tgEnum = logBuff.create_tag('line_number', weight = Pango.Weight.BOLD)
+		ui.createTxtTags()
+		global _l, _lp
+		_l, _lp = ui._p, ui._lp
 
 	def updateColors(mn):
+		ui = mn.ui
 		for color_cfg in(color_set for color_set in mn.cfg['UI'].keys() if color_set[0:2] in('bg', 'fg')):
 			tag_name = color_cfg.replace('bg', 'tg').replace('fg', 'tg')
-			if not(hasattr(mn, tag_name)):
+			if not(hasattr(ui, tag_name)):
 				mn.cfg['UI'].remove(color_cfg)
-				_p(f"Unknown mn.tg{color_cfg[0:2]}\n")
+				_p(f"Unknown ui.tg{color_cfg[0:2]}\n")
 				continue
 			try:
 				color = Gdk.color_parse(mn.cfg['UI'][color_cfg])
 			except ValueError:
 				mn.cfg['UI'].remove(color_cfg)
-				_p(f"Unknown color name:'{mn.cfg['UI'][color_cfg]}' for mn.tg{color_cfg[0:2]}\n")
+				_p(f"Unknown color name:'{mn.cfg['UI'][color_cfg]}' for ui.tg{color_cfg[0:2]}\n")
 				continue
 			prop_name = {'bg': 'background-gdk', 'fg': 'foreground-gdk'}[color_cfg[0:2]]
 			#_d(f"mn.tag_name.set_property(\"{prop_name}\", Gdk.color_parse(mn.cfg['UI'][{color_cfg}])\n")
-			getattr(mn, tag_name).set_property(prop_name, color)
+			getattr(ui, tag_name).set_property(prop_name, color)
 
 	def defaultColors(mn):
 		for color_cfg, color_val in(
-			('fgFileName', 'yellow'),
-			('fgFindPhrase', 'orange'),
-			('bgFindPhrase', '#002818'),
-			('fgFindErr', 'red'),
+			('fgFlNm', 'yellow'),
+			('fgPhrs', 'orange'),
+			('bgPhrs', '#002818'),
+			('fg_Err', 'red'),
 			('fgEnum', '#0F0'),
-			('fgFindWarn', '#F85'),):
+			('fgWarn', '#F85'),):
 			if not(mn.cfg['UI'][color_cfg]):
 				mn.cfg['UI'][color_cfg] = color_val
 		mn.updateColors()
 
-	def appChangeFileset(mn, cb):
+	def go_ChangeFileset(mn, cb):
 		idx = cb.get_active()
 		if idx > -1:
 			mn.cfg['Main']['fileSet'] = f"{idx}"
@@ -116,7 +111,7 @@ class filesFind:
 				return
 			mn.findDirs = tuple(map(ph.expanduser, tl_findDirs))
 
-	def appChangeRoot(mn, w):
+	def go_ChangeRoot(mn, w):
 		ui = mn.ui
 		if w.get_active():
 			if mn.cfg['Main']['FindPath']:
@@ -153,12 +148,12 @@ class filesFind:
 		#All search types rewritten to Glade UI
 		#('Python', "mime:text/x-python", ('~/Devel/Python',)),
 
-	appSrchLog = lambda mn, w: mn.ui.stv.showDlgSrch(w)
+	go_SrchLog = lambda mn, w: mn.ui.stv.showDlgSrch(w)
 
-	def appSrchInfo(mn, w):
+	def go_SrchInfo(mn, w):
 		mn.cfg['Main'].__setitem__('bSrchInfo', str(int(w.get_active())))
 
-	def appMaskHome(mn, w):
+	def go_MaskHome(mn, w):
 		tr = mn.ui.toggRoot
 		bM = w.get_active()
 		mn.cfg['Main']['bMaskHome'] = str(int(bM))
@@ -167,13 +162,10 @@ class filesFind:
 			#label = tr.child
 			#label.set_text((rFn, uiFn)[bM](label.get_text()))
 
-	def appClear(mn, w):
-		mn.ui.logView.clear_text()
-
-	def appFindBreak(mn, w):
+	def go_FindBreak(mn, w):
 		mn.bBreak = True
 
-	def appFind(mn, w):
+	def go_Find(mn, w):
 		if mn.bSearching:
 			return
 		mn.bSearching = True
@@ -223,10 +215,10 @@ class filesFind:
 					mn.bEndQueueUI = True
 			elif task_type==mn.UI_THREAD_LOG:
 				if task_p2:
-					#ui.logView._p(task_p1, tag=task_p2, short_path=True)
-					ui.logView._p(task_p1, tag=task_p2)
+					#_l(task_p1, tag=task_p2, short_path=True)
+					_l(task_p1, tag=task_p2)
 				else:
-					ui.logView._p(task_p1)
+					_l(task_p1)
 			elif task_type==mn.UI_WIDGET_SENSE:
 				getattr(ui, task_p1).set_sensitive(task_p2)
 		mn.bQueueOverwork = False
@@ -265,14 +257,14 @@ class filesFind:
 		if mn.bCfg('bSrchInfo'):
 			mn.thrPrint(f"Searching for regex_nms:'{phrase}'...\n")
 		if not phrase:
-			mn.thrPrint("Empty regex_nms input...\n", tag=mn.tgFindErr)
+			mn.thrPrint("Empty regex_nms input...\n", tag='err')
 			mn.thrEnd()
 			mn.bSearching = False
 			return
 		try:
 			rexFindIt = re.compile(phrase, re.U)
 		except:
-			mn.thrPrint(f"This isn't correct regular expression:'{phrase}'\n", tag=mn.tgFindErr)
+			mn.thrPrint(f"This isn't correct regular expression:'{phrase}'\n", tag='err')
 			mn.thrEnd()
 			mn.bSearching = False
 			return
@@ -315,7 +307,7 @@ class filesFind:
 						if fullFileName==link_target:
 							for txtslice, cTag in(
 								("Found filesystem link pointing to himself:„", 2), (fullFileName, 1), ("”, consider it's necessity, skipping…\n", 2) ):
-								mn.thrPrint(txtslice, tag=(None, mn.tgFileName, mn.tgFindWarn)[cTag])
+								mn.thrPrint(txtslice, tag=(None, 'fnm', 'wrn')[cTag])
 							fullFileName = '' #clear to escape Infinite loop
 							break
 						fullFileName = link_target
@@ -326,7 +318,7 @@ class filesFind:
 					except PermissionError:
 						for txtslice, cTag in(
 							("This file permisions:„", 2), (fullFileName, 1), ("” does not allow to read it…\n", 2) ):
-							mn.thrPrint(txtslice, tag=(None, mn.tgFileName, mn.tgFindWarn)[cTag])
+							mn.thrPrint(txtslice, tag=(None, 'fnm', 'wrn')[cTag])
 						continue
 					if not(hFile):
 						continue
@@ -349,16 +341,16 @@ class filesFind:
 								fullFileName = fullFileName.replace(ph.expanduser('~'), '~')
 							for txtslice, cTag in(
 								("In:'", 0), (hh(fullFileName), 1), ("':\n", 0) ):
-								mn.thrPrint(txtslice, tag=(None, mn.tgFileName)[cTag])
+								mn.thrPrint(txtslice, tag=(None, 'fnm')[cTag])
 							bFnd = True
 							if not(bFound):
 								bFound = True
 						#TODO: convert to autoformat with count lines and use F-string
-						slices.append(("%3d:" % (idx+1), 1))	#	tag=mn.tgEnum
+						slices.append(("%3d:" % (idx+1), 1))	#	tag='num'
 						while tmpline:
 							srchB, srchE = lmatch.span()
 							slices.append((tmpline[:srchB], 0))
-							slices.append((tmpline[srchB:srchE], 2))	#	tag=mn.tgFindPhrase
+							slices.append((tmpline[srchB:srchE], 2))	#	tag='phr'
 							tmpline = tmpline[srchE:]
 							lmatch = rexFindIt.search(tmpline)
 							if not(lmatch):
@@ -367,16 +359,16 @@ class filesFind:
 						for txtslice, cTag in slices:
 							if txtslice:
 								if type(txtslice)==str:
-									mn.thrPrint(txtslice, tag=(None, mn.tgEnum, mn.tgFindPhrase)[cTag])
+									mn.thrPrint(txtslice, tag=(None, 'num', 'phr')[cTag])
 								else:
-									mn.thrPrint(dec(txtslice), tag=(None, mn.tgEnum, mn.tgFindPhrase)[cTag])
+									mn.thrPrint(dec(txtslice), tag=(None, 'num', 'phr')[cTag])
 						mn.thrPrint('\n')
 		_d(f"Loop end, findDir:„{findDir}”\n")
 		mn.thrAppendQueue((mn.UI_WIDGET_SENSE, 'buttFind', True))
 		if mn.bBreak:
-			mn.thrPrint("Searching aborted...\n", tag=mn.tgFindErr)
+			mn.thrPrint("Searching aborted...\n", tag='err')
 		if not(bFound):
-			mn.thrPrint("Searched phrase not found...\n", tag=mn.tgFindErr)
+			mn.thrPrint("Searched phrase not found...\n", tag='err')
 		mn.thrEnd()
 		mn.bSearching = False
 
@@ -457,9 +449,10 @@ class filesFind:
 			else:
 				_d(f"Strange situation, no MainWindowGeometry cfg\n")
 
-	def appCfgStore(mn):
+	def appCfgStore(mn, saveGeometry=True):
 		ui = mn.ui
-		ui.cfg['MainWindowGeometry'] = ui.getTxtWinGeometry(ui.mainWindow)
+		if saveGeometry:
+			ui.cfg['MainWindowGeometry'] = ui.getTxtWinGeometry(ui.mainWindow)
 		mn.cfg['Main']['phraseFind'] = ui.txtFindPhrase.get_text()
 		if not(mn.cfg['Main']['FindPath']):
 			mn.cfg['Main'].remove('FindPath')
