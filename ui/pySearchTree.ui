@@ -80,6 +80,7 @@
     <property name="can-focus">False</property>
     <property name="border-width">5</property>
     <property name="title" translatable="yes">SearchTreePy3 V.1.0</property>
+    <property name="icon-name">search</property>
     <accel-groups>
       <group name="accMain"/>
     </accel-groups>
@@ -236,10 +237,11 @@
               <object class="GtkEntry" id="txtFindPhrase">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="secondary-icon-stock">gtk-clear</property>
+                <property name="secondary-icon-name">edit-delete</property>
                 <property name="primary-icon-activatable">False</property>
                 <property name="primary-icon-sensitive">False</property>
                 <property name="secondary-icon-tooltip-text" translatable="yes">Clear Phrase</property>
+                <signal name="icon-release" handler="ui_PhraseIcons" swapped="no"/>
               </object>
               <packing>
                 <property name="expand">True</property>
@@ -281,13 +283,15 @@
             </child>
             <child>
               <object class="GtkDrawingArea" id="drwSpinner">
+                <property name="width-request">48</property>
                 <property name="visible">True</property>
+                <property name="app-paintable">True</property>
                 <property name="can-focus">False</property>
                 <property name="tooltip-text" translatable="yes">Tu bije serce programu…</property>
               </object>
               <packing>
                 <property name="expand">False</property>
-                <property name="fill">True</property>
+                <property name="fill">False</property>
                 <property name="position">4</property>
               </packing>
             </child>
@@ -299,7 +303,7 @@
                 <property name="receives-default">True</property>
                 <property name="tooltip-text" translatable="yes">Clear log window</property>
                 <property name="use-stock">True</property>
-                <signal name="clicked" handler="do_Clear" swapped="no"/>
+                <signal name="clicked" handler="ui_LogClear" swapped="no"/>
               </object>
               <packing>
                 <property name="expand">False</property>

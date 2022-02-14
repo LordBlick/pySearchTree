@@ -112,28 +112,6 @@ class searchTextView:
 				it.textView.scroll_to_iter (found[0], 0)
 				txtBuff.select_range(*found)
 
-class logViewAddon:
-	def __init__(it, lv):
-		it.lv = lv
-		lv.set_text = lambda txt: lv.get_buffer().set_text(txt)
-		lv.clear_text = lambda: lv.set_text('')
-		lv._p = it._p
-
-	#set_text = lambda it, txt: it.lv.get_buffer().set_text(txt)
-	#clear_text = lambda it: it.lv.set_text('')
-
-	def _p(it, txt, tag=None, short_path=False):
-		buff = it.lv.get_buffer()
-		end = buff.get_end_iter()
-		#text = txt.encode('utf-8', errors='replace')
-		text = hh(txt) if short_path else txt
-		if tag:
-			buff.insert_with_tags(end, text, tag)
-		else:
-			buff.insert(end, text)
-		del(end)
-		it.changed = True
-
 circles = 8 # Warning: At least 2 circles…
 rot_radius = 12
 circle_radius_min = 1
@@ -196,19 +174,21 @@ class SpinnerDrawer():
 			cr.set_source_rgb(1, 1, 1)
 			cr.stroke()
 
-actions  = set('Clear Find FindBreak SrchLog Quit'.split())
-switches = set('ChangeFileset ChangeRoot SrchInfo MaskHome'.split())
-widgets = set('mainWindow accMain logView labFileset lsFileset '\
+act_set = lambda s: set(s.split())
+ui_actions  = act_set('LogClear FindPhraseIco')
+actions  = act_set('Find FindBreak SrchLog Quit')
+switches = act_set('ChangeFileset ChangeRoot SrchInfo MaskHome')
+widgets = act_set('mainWindow accMain logView labFileset lsFileset '\
 			'rendFileset cbFileset drwSpinner toggRoot '\
-			'toggMaskHome toggSrchInfo labFindPhrase txtFindPhrase'.split())
+			'toggMaskHome toggSrchInfo labFindPhrase txtFindPhrase')
 
 class massFindUI:
 	def __init__(ui):
-		ui.uiInit()
+		ui.Init()
 		if __name__ == "__main__":
-			ui.mainWindow.connect("destroy", lambda w: Gtk.main_quit())
-			ui.buttQuit.connect("clicked", lambda w: Gtk.main_quit())
-			ui.buttClear.connect("clicked", lambda x: ui.logView.clear_text())
+			ui.mainWindow.connect("destroy", lambda w: ui.Quit())
+			ui.buttQuit.connect("clicked", lambda w: ui.Quit())
+			ui.buttClear.connect("clicked", ui.go_LogClear)
 			ui.buttSearchLog.connect("clicked", ui.stv.showDlgSrch)
 			ui._p("User Interface Test...\n")
 			ui.uiEnter()
@@ -217,7 +197,7 @@ class massFindUI:
 	Quit  = lambda ui: Gtk.main_quit()
 	bt_id = lambda ui, base_id: f"butt{base_id}"
 
-	def uiInit(ui):
+	def Init(ui):
 		rp = ui.runpath = ph.dirname(ph.realpath(__file__))
 		if __name__ == "__main__":
 			ui.cfg = {}
@@ -237,13 +217,66 @@ class massFindUI:
 		ui.mainWindow.set_keep_above(True)
 		ui.mainWindow.present()
 
-		ui.lva = logViewAddon(ui.logView)
-		ui._p = ui.logView._p
+		lv = ui.logView
+		lv.set_text = lambda txt: lv.get_buffer().set_text(txt)
+		lv.clear_text = lambda: lv.set_text('')
+
+		global _l, _lp
+		_l, _lp = ui._p, ui._lp
+
 		ui.stv = searchTextView(ui, ui.mainWindow, ui.logView)
 		ui.drs = SpinnerDrawer(ui.drwSpinner)
 		ui.drwSpinner.set_size_request(48, 48)
 
+	def createTxtTags(ui):
+		lb = ui.logView.get_buffer()
+		_B = Pango.Weight.BOLD
+		ui.tgFlNm = lb.create_tag('fnm', weight = _B)
+		ui.tgPhrs = lb.create_tag('phr', weight = _B)
+		ui.tg_Err = lb.create_tag('err', weight = _B)
+		ui.tgWarn = lb.create_tag('wrn', weight = _B)
+		ui.tgEnum = lb.create_tag('num', weight = _B)
 
+	def Connections(ui):
+		handlers = {}
+		for hn in (dr[3:] for dr in dir(ui) if dr[:3]=='go_'):
+			handlers[f"ui_{hn}"] = getattr(ui, f"go_{hn}")
+		return handlers
+
+	def go_LogClear(ui, w):
+		ui.logView.clear_text()
+
+	def go_PhraseIcons(ui, ed, icoPos, sigEvent):
+		if icoPos == Gtk.EntryIconPosition.SECONDARY:
+			ed.set_text('')
+
+	def _p(ui, txt, tag=None, short_path=False):
+		buff = ui.logView.get_buffer()
+		end = buff.get_end_iter()
+		text = hh(txt) if short_path else txt
+		if tag and(isinstance(tag, str)):
+			tagTab = buff.get_tag_table()
+			tagByNm = tagTab.lookup(tag)
+			if tagByNm:
+				tag = tagByNm
+			elif hasattr(ui, tag):
+				tag = getattr(ui, tag)
+			else:
+				tag = None
+		if not(isinstance(tag, Gtk.TextTag)):
+			buff.insert(end, text)
+			return
+		buff.insert_with_tags(end, text, tag)
+
+	#TODO: Add scroll to end
+	def _lp(ui, ls_txt, short_path=True):
+		for idx, txt_obj in enumerate(ls_txt):
+			if isinstance(txt_obj, str):
+				ui._p(txt_obj, short_path=short_path)
+			elif isinstance(txt_obj, tuple) and len(txt_obj)==2:
+				ui._p(txt_obj[0], tag=txt_obj[1], short_path=short_path)
+			else:
+				raise TypeError(f"Unknown format in {ls_txt}[{idx}]")
 
 	def getWinGeometry(ui, win):
 		pos = win.get_position()
@@ -252,7 +285,7 @@ class massFindUI:
 
 	def getTxtWinGeometry(ui, win):
 		geo = ui.getWinGeometry(win)
-		txtGeo = ','.join(map(lambda i: "%i" % i, geo))
+		txtGeo = ','.join(f"{i:d}" for i in geo)
 		dlgName = win.get_title()
 		_d(f"Current Window „{dlgName}” geometry: {txtGeo}\n")
 		return txtGeo
